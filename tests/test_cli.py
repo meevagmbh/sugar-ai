@@ -235,7 +235,7 @@ class TestSugarStatus:
 class TestSugarRun:
     """Test sugar run command"""
 
-    @patch("sugar.main.SugarLoop")
+    @patch("sugar.core.loop.SugarLoop")
     def test_run_dry_run_mode(self, mock_loop_class, cli_runner):
         """Test run command in dry run mode"""
         mock_loop = MagicMock()
@@ -256,7 +256,7 @@ class TestSugarRun:
             # Check that the mock was created
             mock_loop_class.assert_called()
 
-    @patch("sugar.main.SugarLoop")
+    @patch("sugar.core.loop.SugarLoop")
     def test_run_validate_mode(self, mock_loop_class, cli_runner):
         """Test run command in validate mode"""
         mock_loop = MagicMock()
