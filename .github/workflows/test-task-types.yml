@@ -112,9 +112,17 @@ jobs:
         sugar add "Test custom type workflow" --type smoke_test --priority 3
         sugar list --type smoke_test --limit 1
 
-        # Test editing and removing
+        # Test editing task type
         sugar task-type edit smoke_test --description "Updated smoke test description"
         sugar task-type show smoke_test | grep "Updated smoke test"
+
+        # Remove the task first (task type can't be removed while tasks exist)
+        TASK_ID=$(sugar list --type smoke_test --limit 1 2>/dev/null | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+        if [ -n "$TASK_ID" ]; then
+          sugar remove "$TASK_ID"
+        fi
+
+        # Now remove the task type
         sugar task-type remove smoke_test --force
 
         # Verify removal
