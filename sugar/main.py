@@ -11,8 +11,10 @@ from pathlib import Path
 import click
 from datetime import datetime
 
-from .core.loop import SugarLoop
 from .__version__ import get_version_info, __version__
+
+# Note: SugarLoop is imported lazily in the loop() command to avoid
+# loading heavy dependencies (github, requests) for lightweight commands
 
 
 def validate_task_type(ctx, param, value):
@@ -1340,6 +1342,10 @@ def run(ctx, dry_run, once, validate):
     global sugar_loop
 
     try:
+        # Import SugarLoop lazily to avoid loading heavy dependencies
+        # (github, requests) for commands that don't need them
+        from .core.loop import SugarLoop
+
         # Initialize Sugar
         config = ctx.obj["config"]
         sugar_loop = SugarLoop(config)
