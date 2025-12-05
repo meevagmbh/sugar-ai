@@ -60,7 +60,7 @@ class TaskTypeManager:
             "is_default": 1,
         },
         {
-            "id": "docs",
+            "id": "documentation",
             "name": "Documentation",
             "description": "Update documentation",
             "agent": "general-purpose",
