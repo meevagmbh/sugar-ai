@@ -235,7 +235,9 @@ class TestToolOrchestratorExecuteTool:
     def test_execute_tool_with_findings(self, temp_dir):
         """Test tool execution with non-zero exit (findings)"""
         # Use a command that will output something and fail with exit code 1
-        tool = ExternalToolConfig(name="test_exit", command="echo 'found issue' && false")
+        tool = ExternalToolConfig(
+            name="test_exit", command="echo 'found issue' && false"
+        )
         orchestrator = ToolOrchestrator([tool], working_dir=temp_dir)
 
         result = orchestrator.execute_tool(tool)

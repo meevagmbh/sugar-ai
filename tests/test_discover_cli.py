@@ -181,9 +181,7 @@ class TestDiscoverCliBasic:
                             "storage": {"database": ".sugar/sugar.db"},
                             "discovery": {
                                 "external_tools": {
-                                    "tools": [
-                                        {"name": "eslint"}  # Missing command
-                                    ]
+                                    "tools": [{"name": "eslint"}]  # Missing command
                                 }
                             },
                         }
