@@ -2,7 +2,6 @@
 """
 Sugar Main Entry Point - Start the AI-powered autonomous development system
 """
-import asyncio
 import json
 import logging
 import signal
@@ -10,6 +9,9 @@ import sys
 from pathlib import Path
 import click
 from datetime import datetime
+
+# Note: asyncio is imported lazily inside commands to avoid ~20ms import overhead
+# for commands that don't need async operations (like --help, --version)
 
 # Note: Version info is imported lazily to avoid loading importlib.metadata
 # and tomllib for commands that don't need version information (~18ms savings)
@@ -444,6 +446,8 @@ def add(
                 task_data["id"] = str(uuid.uuid4())
 
         # Add to queue
+        import asyncio
+
         asyncio.run(_add_task_async(work_queue, task_data))
 
         urgency = (
@@ -505,6 +509,8 @@ def list(ctx, status, limit, task_type, output_format):
         work_queue = WorkQueue(config["sugar"]["storage"]["database"])
 
         # Get tasks
+        import asyncio
+
         tasks = asyncio.run(_list_tasks_async(work_queue, status, limit, task_type))
 
         if not tasks:
@@ -629,6 +635,8 @@ def view(ctx, task_id, output_format):
         work_queue = WorkQueue(config["sugar"]["storage"]["database"])
 
         # Get specific task
+        import asyncio
+
         task = asyncio.run(_get_task_by_id_async(work_queue, task_id))
 
         if not task:
@@ -727,6 +735,8 @@ def remove(ctx, task_id):
         work_queue = WorkQueue(config["sugar"]["storage"]["database"])
 
         # Remove the task
+        import asyncio
+
         success = asyncio.run(_remove_task_async(work_queue, task_id))
 
         if success:
@@ -761,6 +771,8 @@ def hold(ctx, task_id, reason):
             success = await work_queue.hold_work(task_id, reason)
             return success
 
+        import asyncio
+
         success = asyncio.run(_hold_task_async())
 
         if success:
@@ -794,6 +806,8 @@ def release(ctx, task_id):
             await work_queue.initialize()
             success = await work_queue.release_work(task_id)
             return success
+
+        import asyncio
 
         success = asyncio.run(_release_task_async())
 
@@ -856,6 +870,8 @@ def update(ctx, task_id, title, description, priority, task_type, status):
             updates["status"] = status
 
         updates["updated_at"] = datetime.utcnow().isoformat()
+
+        import asyncio
 
         # Update the task
         success = asyncio.run(_update_task_async(work_queue, task_id, updates))
@@ -1200,6 +1216,8 @@ def status(ctx):
 
         work_queue = WorkQueue(config["sugar"]["storage"]["database"])
 
+        import asyncio
+
         # Get statistics
         stats = asyncio.run(_get_status_async(work_queue))
 
@@ -1380,6 +1398,8 @@ def run(ctx, dry_run, once, validate):
         if dry_run:
             sugar_loop.config["sugar"]["dry_run"] = True
             logger.info("🧪 Dry run mode enabled via command line")
+
+        import asyncio
 
         # Validation mode
         if validate:
@@ -2412,6 +2432,8 @@ def dedupe(ctx, dry_run):
                 click.echo("❌ Operation cancelled")
 
     try:
+        import asyncio
+
         asyncio.run(_dedupe_work())
     except Exception as e:
         click.echo(f"❌ Error deduplicating work items: {e}", err=True)
@@ -2525,6 +2547,8 @@ def cleanup(ctx, dry_run):
                 click.echo("❌ Operation cancelled")
 
     try:
+        import asyncio
+
         asyncio.run(_cleanup_bogus_work())
     except Exception as e:
         click.echo(f"❌ Error cleaning up bogus work items: {e}", err=True)
@@ -2591,6 +2615,8 @@ def list_task_types(ctx, format):
                 click.echo()
 
     try:
+        import asyncio
+
         asyncio.run(_list_task_types())
     except Exception as e:
         click.echo(f"❌ Error listing task types: {e}", err=True)
@@ -2639,6 +2665,8 @@ def add_task_type(ctx, type_id, name, description, agent, commit_template, emoji
             sys.exit(1)
 
     try:
+        import asyncio
+
         asyncio.run(_add_task_type())
     except Exception as e:
         click.echo(f"❌ Error adding task type: {e}", err=True)
@@ -2681,6 +2709,8 @@ def edit_task_type(ctx, type_id, name, description, agent, commit_template, emoj
             sys.exit(1)
 
     try:
+        import asyncio
+
         asyncio.run(_edit_task_type())
     except Exception as e:
         click.echo(f"❌ Error editing task type: {e}", err=True)
@@ -2733,6 +2763,8 @@ def remove_task_type(ctx, type_id, force):
             sys.exit(1)
 
     try:
+        import asyncio
+
         asyncio.run(_remove_task_type())
     except Exception as e:
         click.echo(f"❌ Error removing task type: {e}", err=True)
@@ -2781,6 +2813,8 @@ def show_task_type(ctx, type_id):
             click.echo(f"Updated: {task_type['updated_at']}")
 
     try:
+        import asyncio
+
         asyncio.run(_show_task_type())
     except Exception as e:
         click.echo(f"❌ Error showing task type: {e}", err=True)
@@ -2823,6 +2857,8 @@ def export_task_types(ctx, file):
             click.echo(output)
 
     try:
+        import asyncio
+
         asyncio.run(_export_task_types())
     except Exception as e:
         click.echo(f"❌ Error exporting task types: {e}", err=True)
@@ -2861,6 +2897,8 @@ def import_task_types(ctx, file, overwrite):
         click.echo(f"✅ Imported {imported_count}/{len(task_types)} task types")
 
     try:
+        import asyncio
+
         asyncio.run(_import_task_types())
     except Exception as e:
         click.echo(f"❌ Error importing task types: {e}", err=True)
