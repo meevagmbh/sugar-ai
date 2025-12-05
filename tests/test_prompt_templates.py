@@ -59,7 +59,7 @@ class TestPromptTemplateManager:
 
         assert "test-tool" in template
         assert "test-cmd" in template
-        assert "/tmp/test_output.txt" in template
+        assert str(output_file) in template  # Use str() for cross-platform path
         assert "sugar add" in template
         assert "Read the file at" in template
 
@@ -77,7 +77,7 @@ class TestPromptTemplateManager:
         assert "bandit" in template
         assert "Security Priority Mapping" in template
         assert "CVSS Score" in template
-        assert "/tmp/security_output.txt" in template
+        assert str(output_file) in template  # Use str() for cross-platform path
 
     def test_get_builtin_coverage_template(self):
         """Test getting the coverage template"""
@@ -92,7 +92,7 @@ class TestPromptTemplateManager:
 
         assert "pytest-cov" in template
         assert "Coverage Priority Mapping" in template
-        assert "/tmp/coverage_output.txt" in template
+        assert str(output_file) in template  # Use str() for cross-platform path
 
     def test_get_builtin_lint_template(self):
         """Test getting the lint template"""
@@ -107,7 +107,7 @@ class TestPromptTemplateManager:
 
         assert "eslint" in template
         assert "Aggressive Grouping Rules" in template
-        assert "/tmp/lint_output.txt" in template
+        assert str(output_file) in template  # Use str() for cross-platform path
 
     def test_get_unknown_template_falls_back_to_default(self):
         """Test that unknown template type falls back to default"""
@@ -137,7 +137,7 @@ class TestPromptTemplateManager:
 
         assert "my-custom-tool" in template
         assert "my-custom-command --verbose" in template
-        assert "/tmp/custom_output.txt" in template
+        assert str(output_file) in template  # Use str() for cross-platform path
 
     def test_list_available_templates(self):
         """Test listing all available templates"""
@@ -313,7 +313,7 @@ class TestCreateToolInterpretationPrompt:
 
         assert "test-tool" in prompt
         assert "test-command" in prompt
-        assert "/tmp/test_output.txt" in prompt
+        assert str(output_file) in prompt  # Use str() for cross-platform path
         assert "sugar add" in prompt
         assert "Read the file at" in prompt
 
@@ -487,4 +487,4 @@ class TestTemplateVariables:
             output_file_path=output_file,
         )
 
-        assert "/tmp/nested/path/to/output.txt" in template
+        assert str(output_file) in template  # Use str() for cross-platform path
