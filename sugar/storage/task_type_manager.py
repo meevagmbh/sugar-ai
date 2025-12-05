@@ -86,43 +86,50 @@ class TaskTypeManager:
         self._initialized = False
 
     async def _ensure_table_exists(self, db) -> None:
-        """Ensure the task_types table exists, creating it with defaults if needed"""
+        """Ensure the task_types table exists, creating it with defaults if needed.
+
+        Note: The table is normally created by WorkQueue during 'sugar init'.
+        This method is a fallback for cases where TaskTypeManager is used directly.
+
+        Performance optimization: We check if the table has any rows first.
+        In the common case (after initialization), this allows us to skip all
+        INSERT operations with just 2 queries (CREATE + COUNT) instead of 7.
+        """
         if self._initialized:
             return
 
-        # Check if table exists
-        cursor = await db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='task_types'"
-        )
-        table_exists = await cursor.fetchone()
-
-        if not table_exists:
-            # Create task_types table
-            await db.execute(
-                """
-                CREATE TABLE task_types (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    description TEXT,
-                    agent TEXT,
-                    commit_template TEXT,
-                    emoji TEXT,
-                    file_patterns TEXT,
-                    is_default BOOLEAN DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
+        # Use IF NOT EXISTS to avoid checking first - single query for common case
+        await db.execute(
             """
+            CREATE TABLE IF NOT EXISTS task_types (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                agent TEXT,
+                commit_template TEXT,
+                emoji TEXT,
+                file_patterns TEXT,
+                is_default BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        """
+        )
 
-            # Insert default task types
-            for task_type in self.DEFAULT_TASK_TYPES:
-                await db.execute(
-                    """
-                    INSERT INTO task_types
-                    (id, name, description, agent, commit_template, emoji, file_patterns, is_default)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        # Check if table already has data - single query
+        cursor = await db.execute("SELECT COUNT(*) FROM task_types")
+        row_count = (await cursor.fetchone())[0]
+
+        # Only insert defaults if table is empty
+        if row_count == 0:
+            # Use executemany for single bulk insert instead of 6 separate queries
+            await db.executemany(
+                """
+                INSERT OR IGNORE INTO task_types
+                (id, name, description, agent, commit_template, emoji, file_patterns, is_default)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
+                [
                     (
                         task_type["id"],
                         task_type["name"],
@@ -132,16 +139,16 @@ class TaskTypeManager:
                         task_type["emoji"],
                         task_type["file_patterns"],
                         task_type["is_default"],
-                    ),
-                )
-
+                    )
+                    for task_type in self.DEFAULT_TASK_TYPES
+                ],
+            )
             await db.commit()
-            logger.info("Created task_types table with default types")
 
         self._initialized = True
 
     async def get_all_task_types(self) -> List[Dict]:
-        """Get all task types from the database"""
+        """Get all task types from the database."""
         async with aiosqlite.connect(self.db_path) as db:
             await self._ensure_table_exists(db)
             db.row_factory = aiosqlite.Row
@@ -168,7 +175,7 @@ class TaskTypeManager:
             return result
 
     async def get_task_type(self, type_id: str) -> Optional[Dict]:
-        """Get a specific task type by ID"""
+        """Get a specific task type by ID."""
         async with aiosqlite.connect(self.db_path) as db:
             await self._ensure_table_exists(db)
             db.row_factory = aiosqlite.Row
@@ -194,7 +201,7 @@ class TaskTypeManager:
             return None
 
     async def get_task_type_ids(self) -> List[str]:
-        """Get all task type IDs for CLI validation"""
+        """Get all task type IDs for CLI validation."""
         async with aiosqlite.connect(self.db_path) as db:
             await self._ensure_table_exists(db)
             cursor = await db.execute("SELECT id FROM task_types ORDER BY name ASC")
