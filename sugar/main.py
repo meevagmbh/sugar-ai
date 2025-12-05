@@ -11,7 +11,31 @@ from pathlib import Path
 import click
 from datetime import datetime
 
-from .__version__ import get_version_info, __version__
+# Note: Version info is imported lazily to avoid loading importlib.metadata
+# and tomllib for commands that don't need version information (~18ms savings)
+_version_info_cache = None
+_version_cache = None
+
+
+def _get_version_info():
+    """Lazy loader for version info to avoid import overhead."""
+    global _version_info_cache
+    if _version_info_cache is None:
+        from .__version__ import get_version_info
+
+        _version_info_cache = get_version_info()
+    return _version_info_cache
+
+
+def _get_version():
+    """Lazy loader for version string."""
+    global _version_cache
+    if _version_cache is None:
+        from .__version__ import __version__
+
+        _version_cache = __version__
+    return _version_cache
+
 
 # Note: SugarLoop is imported lazily in the loop() command to avoid
 # loading heavy dependencies (github, requests) for lightweight commands
@@ -167,7 +191,7 @@ def cli(ctx, config, debug, version):
     """
     # Handle version request
     if version:
-        click.echo(get_version_info())
+        click.echo(_get_version_info())
         ctx.exit()
 
     # If no command was given, show help
@@ -212,7 +236,7 @@ def init(project_dir):
     project_path = Path(project_dir).resolve()
     sugar_dir = project_path / ".sugar"
 
-    click.echo(f"🚀 Initializing {get_version_info()} in {project_path}")
+    click.echo(f"🚀 Initializing {_get_version_info()} in {project_path}")
 
     try:
         # Create .sugar directory
@@ -263,7 +287,7 @@ def init(project_dir):
         with open(logs_dir / ".gitkeep", "w") as f:
             f.write("# This directory is monitored by Sugar for error logs\n")
 
-        click.echo(f"✅ {get_version_info()} initialized successfully! 🍰")
+        click.echo(f"✅ {_get_version_info()} initialized successfully! 🍰")
         click.echo(f"📁 Config: {config_path}")
         click.echo(f"📁 Database: {sugar_dir / 'sugar.db'}")
         click.echo(f"📁 Logs: {sugar_dir / 'logs'}")
@@ -1420,7 +1444,7 @@ async def validate_config(sugar_loop):
 
 async def run_once(sugar_loop):
     """Run Sugar for one cycle and exit"""
-    logger.info(f"🔄 Running {get_version_info()} for one cycle...")
+    logger.info(f"🔄 Running {_get_version_info()} for one cycle...")
 
     # Initialize
     await sugar_loop.work_queue.initialize()
@@ -1465,7 +1489,7 @@ async def run_continuous(sugar_loop):
         with open(pidfile, "w") as f:
             f.write(str(os.getpid()))
 
-        logger.info(f"🚀 Starting {get_version_info()} in continuous mode...")
+        logger.info(f"🚀 Starting {_get_version_info()} in continuous mode...")
         logger.info("💡 Press Ctrl+C to stop Sugar gracefully")
         logger.info("💡 Or run 'sugar stop' from another terminal")
         logger.info("💡 Or run 'sugar stop --force' to force immediate termination")
@@ -2065,7 +2089,7 @@ def debug(ctx, format, output, include_sensitive):
         # Collect diagnostic information
         diagnostic = {
             "timestamp": datetime.now().isoformat(),
-            "sugar_version": get_version_info(),
+            "sugar_version": _get_version_info(),
             "system_info": {
                 "platform": platform.platform(),
                 "python_version": platform.python_version(),
@@ -2781,7 +2805,7 @@ def export_task_types(ctx, file):
         export_data = {
             "task_types": task_types,
             "exported_at": datetime.now().isoformat(),
-            "sugar_version": __version__,
+            "sugar_version": _get_version(),
         }
 
         output = json.dumps(export_data, indent=2)
