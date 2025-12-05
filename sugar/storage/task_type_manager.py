@@ -56,7 +56,7 @@ class TaskTypeManager:
             "agent": "general-purpose",
             "commit_template": "refactor: {title}",
             "emoji": "♻️",
-            "file_patterns": '[]',
+            "file_patterns": "[]",
             "is_default": 1,
         },
         {
@@ -76,7 +76,7 @@ class TaskTypeManager:
             "agent": "general-purpose",
             "commit_template": "chore: {title}",
             "emoji": "🔧",
-            "file_patterns": '[]',
+            "file_patterns": "[]",
             "is_default": 1,
         },
     ]

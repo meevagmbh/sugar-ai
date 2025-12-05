@@ -167,7 +167,14 @@ class TestTaskTypeManager:
 
         # Verify all expected default types are present
         type_ids = [t["id"] for t in task_types]
-        expected_defaults = ["bug_fix", "feature", "test", "refactor", "documentation", "chore"]
+        expected_defaults = [
+            "bug_fix",
+            "feature",
+            "test",
+            "refactor",
+            "documentation",
+            "chore",
+        ]
         assert all(default in type_ids for default in expected_defaults)
 
         # Verify all are marked as default (SQLite returns 1 for boolean True)
@@ -313,7 +320,14 @@ class TestTaskTypeManager:
         type_ids = await task_type_manager.get_task_type_ids()
 
         # Should return all default type IDs (6 defaults now)
-        expected_defaults = ["bug_fix", "chore", "documentation", "feature", "refactor", "test"]
+        expected_defaults = [
+            "bug_fix",
+            "chore",
+            "documentation",
+            "feature",
+            "refactor",
+            "test",
+        ]
         assert sorted(type_ids) == expected_defaults
 
         # Add a custom type and verify it's included
