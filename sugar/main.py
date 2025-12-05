@@ -201,6 +201,7 @@ def cli(ctx, config, debug, version):
 
     # Setup logging with proper configuration
     log_file_path = ".sugar/sugar.log"  # Default
+    config_data = None
     if Path(config).exists():
         try:
             import yaml
@@ -222,6 +223,7 @@ def cli(ctx, config, debug, version):
 
     ctx.ensure_object(dict)
     ctx.obj["config"] = config
+    ctx.obj["config_data"] = config_data  # Cache parsed config to avoid re-parsing
 
 
 @cli.command()
@@ -2547,14 +2549,17 @@ def task_type(ctx):
 @click.pass_context
 def list_task_types(ctx, format):
     """List all task types"""
-    import yaml
     from .storage.task_type_manager import TaskTypeManager
 
     async def _list_task_types():
-        # Load configuration
-        config_file = ctx.obj["config"]
-        with open(config_file, "r") as f:
-            config = yaml.safe_load(f)
+        # Use cached config from CLI context to avoid re-parsing (~10ms savings)
+        config = ctx.obj.get("config_data")
+        if config is None:
+            import yaml
+
+            config_file = ctx.obj["config"]
+            with open(config_file, "r") as f:
+                config = yaml.safe_load(f)
 
         # Initialize TaskTypeManager
         db_path = config["sugar"]["storage"]["database"]
