@@ -190,6 +190,11 @@ jobs:
         pip install -r requirements.txt
         pip install -e .
 
+    - name: Pre-compile bytecode
+      run: |
+        # Pre-compile all Python files to avoid compilation overhead during timing
+        python -m compileall -q sugar/
+
     - name: Performance Test - Task Type Operations
       run: |
         mkdir -p perf-test
@@ -197,6 +202,10 @@ jobs:
         sugar init
 
         echo "Testing performance of task type operations..."
+
+        # Warm up: run command once to warm filesystem and import caches
+        sugar task-type list > /dev/null
+        echo "Cache warmed up, starting timed runs..."
 
         # Time task type listing
         start_time=$(date +%s%N)
