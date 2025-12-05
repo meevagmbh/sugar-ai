@@ -117,11 +117,11 @@ class TaskTypeManager:
         )
 
         # Check if table already has data - single query
-        cursor = await db.execute("SELECT COUNT(*) FROM task_types")
-        row_count = (await cursor.fetchone())[0]
+        cursor = await db.execute("SELECT id FROM task_types LIMIT 1")
+        row = await cursor.fetchone()
 
         # Only insert defaults if table is empty
-        if row_count == 0:
+        if row is None:
             # Use executemany for single bulk insert instead of 6 separate queries
             await db.executemany(
                 """
