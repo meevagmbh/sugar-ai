@@ -330,11 +330,18 @@ class TestToolOrchestratorExecuteTool:
 
     def test_execute_tool_uses_working_dir(self, temp_dir):
         """Test that tool execution uses specified working directory"""
-        tool = ExternalToolConfig(name="pwd", command="pwd")
+        tool = ExternalToolConfig(name="echo", command="echo test")
         orchestrator = ToolOrchestrator([tool], working_dir=temp_dir)
 
-        result = orchestrator.execute_tool(tool)
-        assert str(temp_dir) in result.stdout
+        with patch("subprocess.run") as mock_run:
+            with patch("shutil.which", return_value="/usr/bin/echo"):
+                mock_run.return_value = Mock(stdout="test", stderr="", returncode=0)
+                orchestrator.execute_tool(tool)
+
+        # Verify working directory was passed to subprocess
+        mock_run.assert_called_once()
+        call_kwargs = mock_run.call_args[1]
+        assert call_kwargs["cwd"] == temp_dir
 
     def test_execute_tool_with_env_vars(self, temp_dir):
         """Test tool execution with environment variables in command"""
