@@ -360,7 +360,7 @@ class TestCreateToolInterpretationPrompt:
                 config={"templates_dir": tmpdir},
             )
 
-            assert "Custom: my-tool - /tmp/custom_output.txt" in prompt
+            assert f"Custom: my-tool - {output_file}" in prompt
 
 
 class TestTemplateContent:
