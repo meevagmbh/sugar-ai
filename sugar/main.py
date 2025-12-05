@@ -1489,6 +1489,8 @@ async def run_once(sugar_loop):
 
 async def run_continuous(sugar_loop):
     """Run Sugar continuously"""
+    import asyncio
+
     global shutdown_event
     shutdown_event = asyncio.Event()
 
