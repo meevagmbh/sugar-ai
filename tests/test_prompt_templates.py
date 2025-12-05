@@ -176,7 +176,9 @@ Command: ${command}
             )
 
             assert "Custom template for test" in rendered
-            assert "Output File: /tmp/custom.txt" in rendered
+            assert (
+                f"Output File: {output_file}" in rendered
+            )  # Use str() for cross-platform path
 
     def test_save_custom_template_no_overwrite(self):
         """Test that saving won't overwrite existing template by default"""
