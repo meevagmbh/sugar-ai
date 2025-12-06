@@ -230,6 +230,8 @@ class TestToolResultSerialization:
             "error_message",
             "timed_out",
             "tool_not_found",
+            "is_json_output",
+            "json_parse_error",
         }
 
         # Values should match
