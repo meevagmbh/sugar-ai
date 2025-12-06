@@ -101,6 +101,7 @@ See Also
 
 from .code_quality import CodeQualityScanner
 from .error_monitor import ErrorLogMonitor
+from .external_tool_discovery import ExternalToolDiscovery
 from .github_watcher import GitHubWatcher
 from .test_coverage import TestCoverageAnalyzer
 from .prompt_templates import (
@@ -128,6 +129,8 @@ from .orchestrator import (
 __all__ = [
     # Error and log monitoring
     "ErrorLogMonitor",  # Scans log files for errors and generates maintenance tasks
+    # External tool discovery
+    "ExternalToolDiscovery",  # Runs external tools (eslint, ruff, etc.) and creates work items
     # GitHub integration
     "GitHubWatcher",  # Monitors GitHub issues and integrates with repository
     # Code quality analysis
