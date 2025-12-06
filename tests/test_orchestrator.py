@@ -166,6 +166,211 @@ class TestToolResult:
         assert d["tool_not_found"] is False
 
 
+class TestToolResultJsonValidation:
+    """Tests for JSON validation in ToolResult"""
+
+    def test_is_json_output_with_valid_json_object(self):
+        """Test is_json_output returns True for valid JSON object"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content='{"key": "value", "number": 42}',
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        assert result.is_json_output is True
+        assert result.json_parse_error is None
+
+    def test_is_json_output_with_valid_json_array(self):
+        """Test is_json_output returns True for valid JSON array"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content='[1, 2, 3, "four"]',
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        assert result.is_json_output is True
+        assert result.json_parse_error is None
+
+    def test_is_json_output_with_valid_json_string(self):
+        """Test is_json_output returns True for valid JSON primitive (string)"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content='"just a string"',
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        assert result.is_json_output is True
+        assert result.json_parse_error is None
+
+    def test_is_json_output_with_valid_json_number(self):
+        """Test is_json_output returns True for valid JSON primitive (number)"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content="42.5",
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        assert result.is_json_output is True
+        assert result.json_parse_error is None
+
+    def test_is_json_output_with_invalid_json(self):
+        """Test is_json_output returns False for invalid JSON"""
+        result = create_tool_result_with_output(
+            name="test_tool",
+            command="cmd",
+            stdout_content="This is not JSON",
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        assert result.is_json_output is False
+        assert result.json_parse_error is not None
+        assert "Expecting value" in result.json_parse_error
+
+    def test_is_json_output_with_malformed_json(self):
+        """Test is_json_output returns False for malformed JSON"""
+        result = create_tool_result_with_output(
+            name="test_tool",
+            command="cmd",
+            stdout_content='{"key": "value"',  # Missing closing brace
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        assert result.is_json_output is False
+        assert result.json_parse_error is not None
+
+    def test_is_json_output_with_empty_output(self):
+        """Test is_json_output returns False for empty output"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content="",
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        assert result.is_json_output is False
+        assert result.json_parse_error is None  # No error for empty output
+
+    def test_is_json_output_with_whitespace_only(self):
+        """Test is_json_output returns False for whitespace-only output"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content="   \n\t  ",
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        assert result.is_json_output is False
+        assert result.json_parse_error is None  # No error for whitespace-only
+
+    def test_is_json_output_with_json_and_leading_whitespace(self):
+        """Test is_json_output handles JSON with leading/trailing whitespace"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content='  \n {"key": "value"} \n  ',
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        assert result.is_json_output is True
+        assert result.json_parse_error is None
+
+    def test_json_validation_caching(self):
+        """Test that JSON validation result is cached"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content='{"cached": true}',
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        # First access
+        assert result.is_json_output is True
+        # Modify the cached value (normally not possible, but for testing)
+        result._is_json_output = False
+        result._json_validated = True  # Already validated
+        # Second access should return cached value
+        assert result.is_json_output is False
+
+    def test_to_dict_includes_json_fields(self):
+        """Test to_dict includes is_json_output and json_parse_error"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content='{"valid": true}',
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        d = result.to_dict()
+        assert "is_json_output" in d
+        assert "json_parse_error" in d
+        assert d["is_json_output"] is True
+        assert d["json_parse_error"] is None
+
+    def test_to_dict_with_invalid_json(self):
+        """Test to_dict with invalid JSON includes error message"""
+        result = create_tool_result_with_output(
+            name="test",
+            command="cmd",
+            stdout_content="not json",
+            stderr="",
+            exit_code=0,
+            success=True,
+        )
+        d = result.to_dict()
+        assert d["is_json_output"] is False
+        assert d["json_parse_error"] is not None
+
+    def test_json_validation_logs_warning_for_invalid_json(self, caplog):
+        """Test that invalid JSON logs a warning"""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = create_tool_result_with_output(
+                name="my_tool",
+                command="cmd",
+                stdout_content="invalid json content",
+                stderr="",
+                exit_code=0,
+                success=True,
+            )
+            _ = result.is_json_output  # Trigger validation
+
+        assert "my_tool" in caplog.text
+        assert "not valid JSON" in caplog.text
+
+    def test_json_validation_no_warning_for_valid_json(self, caplog):
+        """Test that valid JSON does not log a warning"""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = create_tool_result_with_output(
+                name="my_tool",
+                command="cmd",
+                stdout_content='{"valid": true}',
+                stderr="",
+                exit_code=0,
+                success=True,
+            )
+            _ = result.is_json_output  # Trigger validation
+
+        assert "not valid JSON" not in caplog.text
+
+
 class TestToolOrchestratorInit:
     """Tests for ToolOrchestrator initialization"""
 
@@ -575,6 +780,8 @@ class TestToolResultSerialization:
             "error_message",
             "timed_out",
             "tool_not_found",
+            "is_json_output",
+            "json_parse_error",
         }
 
         # Values should match

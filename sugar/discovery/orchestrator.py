@@ -6,6 +6,7 @@ via subprocess and capturing their stdout/stderr without any parsing or modifica
 """
 
 import atexit
+import json
 import logging
 import shutil
 import signal
@@ -44,6 +45,11 @@ class ToolResult:
     timed_out: bool = False
     tool_not_found: bool = False
 
+    # Private cached fields for JSON validation (set after first access)
+    _json_validated: bool = field(default=False, repr=False, compare=False)
+    _is_json_output: bool = field(default=False, repr=False, compare=False)
+    _json_parse_error: Optional[str] = field(default=None, repr=False, compare=False)
+
     @property
     def stdout(self) -> str:
         """Read stdout from the output file.
@@ -57,6 +63,57 @@ class ToolResult:
             except OSError:
                 return ""
         return ""
+
+    def _validate_json(self) -> None:
+        """Validate if stdout is valid JSON and cache the result.
+
+        This is a non-blocking operation - it logs warnings but never raises exceptions.
+        """
+        if self._json_validated:
+            return
+
+        self._json_validated = True
+        output = self.stdout.strip()
+
+        if not output:
+            self._is_json_output = False
+            self._json_parse_error = None
+            return
+
+        try:
+            json.loads(output)
+            self._is_json_output = True
+            self._json_parse_error = None
+        except json.JSONDecodeError as e:
+            self._is_json_output = False
+            self._json_parse_error = str(e)
+            logger.warning(
+                "Tool '%s' output is not valid JSON: %s (first 100 chars: %s)",
+                self.name,
+                e,
+                output[:100] + "..." if len(output) > 100 else output,
+            )
+
+    @property
+    def is_json_output(self) -> bool:
+        """Check if stdout is valid JSON.
+
+        Returns:
+            True if stdout can be parsed as valid JSON, False otherwise.
+        """
+        self._validate_json()
+        return self._is_json_output
+
+    @property
+    def json_parse_error(self) -> Optional[str]:
+        """Get the JSON parse error message if stdout is not valid JSON.
+
+        Returns:
+            Error message string if JSON parsing failed, None if parsing succeeded
+            or if output is empty.
+        """
+        self._validate_json()
+        return self._json_parse_error
 
     @property
     def has_output(self) -> bool:
@@ -76,6 +133,8 @@ class ToolResult:
             "error_message": self.error_message,
             "timed_out": self.timed_out,
             "tool_not_found": self.tool_not_found,
+            "is_json_output": self.is_json_output,
+            "json_parse_error": self.json_parse_error,
         }
 
 
