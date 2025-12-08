@@ -157,17 +157,24 @@ class TestTaskTypeManager:
         """
         Verify default task types are created during database initialization.
 
-        The system should create 5 default task types, all marked with is_default=1.
+        The system should create 6 default task types, all marked with is_default=1.
         SQLite stores boolean True as integer 1.
         """
         task_types = await task_type_manager.get_all_task_types()
 
         # Verify expected count of default types
-        assert len(task_types) == 5
+        assert len(task_types) == 6
 
         # Verify all expected default types are present
         type_ids = [t["id"] for t in task_types]
-        expected_defaults = ["bug_fix", "feature", "test", "refactor", "documentation"]
+        expected_defaults = [
+            "bug_fix",
+            "feature",
+            "test",
+            "refactor",
+            "documentation",
+            "chore",
+        ]
         assert all(default in type_ids for default in expected_defaults)
 
         # Verify all are marked as default (SQLite returns 1 for boolean True)
@@ -312,8 +319,15 @@ class TestTaskTypeManager:
         """
         type_ids = await task_type_manager.get_task_type_ids()
 
-        # Should return all default type IDs
-        expected_defaults = ["bug_fix", "documentation", "feature", "refactor", "test"]
+        # Should return all default type IDs (6 defaults now)
+        expected_defaults = [
+            "bug_fix",
+            "chore",
+            "documentation",
+            "feature",
+            "refactor",
+            "test",
+        ]
         assert sorted(type_ids) == expected_defaults
 
         # Add a custom type and verify it's included
@@ -1141,12 +1155,12 @@ class TestTaskTypeMigration:
         manager = TaskTypeManager(db_path)
         task_types = asyncio.run(manager.get_all_task_types())
 
-        # Expect exactly 5 default types
-        assert len(task_types) == 5
+        # Expect exactly 6 default types
+        assert len(task_types) == 6
 
         # Verify the exact set of default type IDs
         type_ids = {t["id"] for t in task_types}
-        expected = {"bug_fix", "feature", "test", "refactor", "documentation"}
+        expected = {"bug_fix", "feature", "test", "refactor", "documentation", "chore"}
         assert type_ids == expected
 
     def test_migration_is_idempotent(self, temp_sugar_env):
@@ -1171,7 +1185,7 @@ class TestTaskTypeMigration:
         # Verify no duplicate types were created
         manager = TaskTypeManager(db_path)
         task_types = asyncio.run(manager.get_all_task_types())
-        assert len(task_types) == 5
+        assert len(task_types) == 6
 
 
 if __name__ == "__main__":

@@ -17,12 +17,140 @@ logger = logging.getLogger(__name__)
 class TaskTypeManager:
     """Manages task types in the database"""
 
+    # Default task types that are created when the table is initialized
+    DEFAULT_TASK_TYPES = [
+        {
+            "id": "bug_fix",
+            "name": "Bug Fix",
+            "description": "Fix existing issues or bugs",
+            "agent": "tech-lead",
+            "commit_template": "fix: {title}",
+            "emoji": "🐛",
+            "file_patterns": '["src/components/buggy_component.py", "tests/test_fix.py"]',
+            "is_default": 1,
+        },
+        {
+            "id": "feature",
+            "name": "Feature",
+            "description": "Add new functionality",
+            "agent": "general-purpose",
+            "commit_template": "feat: {title}",
+            "emoji": "✨",
+            "file_patterns": '["src/features/new_feature.py", "src/api/feature_endpoint.py"]',
+            "is_default": 1,
+        },
+        {
+            "id": "test",
+            "name": "Test",
+            "description": "Add or update tests",
+            "agent": "general-purpose",
+            "commit_template": "test: {title}",
+            "emoji": "🧪",
+            "file_patterns": '["tests/"]',
+            "is_default": 1,
+        },
+        {
+            "id": "refactor",
+            "name": "Refactor",
+            "description": "Improve code structure without changing behavior",
+            "agent": "general-purpose",
+            "commit_template": "refactor: {title}",
+            "emoji": "♻️",
+            "file_patterns": "[]",
+            "is_default": 1,
+        },
+        {
+            "id": "documentation",
+            "name": "Documentation",
+            "description": "Update documentation",
+            "agent": "general-purpose",
+            "commit_template": "docs: {title}",
+            "emoji": "📚",
+            "file_patterns": '["docs/", "README.md"]',
+            "is_default": 1,
+        },
+        {
+            "id": "chore",
+            "name": "Chore",
+            "description": "Maintenance and housekeeping tasks",
+            "agent": "general-purpose",
+            "commit_template": "chore: {title}",
+            "emoji": "🔧",
+            "file_patterns": "[]",
+            "is_default": 1,
+        },
+    ]
+
     def __init__(self, db_path: str):
         self.db_path = db_path
+        self._initialized = False
+
+    async def _ensure_table_exists(self, db) -> None:
+        """Ensure the task_types table exists, creating it with defaults if needed.
+
+        Note: The table is normally created by WorkQueue during 'sugar init'.
+        This method is a fallback for cases where TaskTypeManager is used directly.
+
+        Performance optimization: We check if the table has any rows first.
+        In the common case (after initialization), this allows us to skip all
+        INSERT operations with just 2 queries (CREATE + COUNT) instead of 7.
+        """
+        if self._initialized:
+            return
+
+        # Use IF NOT EXISTS to avoid checking first - single query for common case
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS task_types (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                agent TEXT,
+                commit_template TEXT,
+                emoji TEXT,
+                file_patterns TEXT,
+                is_default BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+
+        # Check if table already has data - single query
+        cursor = await db.execute("SELECT id FROM task_types LIMIT 1")
+        row = await cursor.fetchone()
+
+        # Only insert defaults if table is empty
+        if row is None:
+            # Use executemany for single bulk insert instead of 6 separate queries
+            await db.executemany(
+                """
+                INSERT OR IGNORE INTO task_types
+                (id, name, description, agent, commit_template, emoji, file_patterns, is_default)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        task_type["id"],
+                        task_type["name"],
+                        task_type["description"],
+                        task_type["agent"],
+                        task_type["commit_template"],
+                        task_type["emoji"],
+                        task_type["file_patterns"],
+                        task_type["is_default"],
+                    )
+                    for task_type in self.DEFAULT_TASK_TYPES
+                ],
+            )
+            await db.commit()
+
+        self._initialized = True
 
     async def get_all_task_types(self) -> List[Dict]:
-        """Get all task types from the database"""
+        """Get all task types from the database."""
         async with aiosqlite.connect(self.db_path) as db:
+            await self._ensure_table_exists(db)
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM task_types ORDER BY is_default DESC, name ASC"
@@ -47,8 +175,9 @@ class TaskTypeManager:
             return result
 
     async def get_task_type(self, type_id: str) -> Optional[Dict]:
-        """Get a specific task type by ID"""
+        """Get a specific task type by ID."""
         async with aiosqlite.connect(self.db_path) as db:
+            await self._ensure_table_exists(db)
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM task_types WHERE id = ?", (type_id,)
@@ -72,8 +201,9 @@ class TaskTypeManager:
             return None
 
     async def get_task_type_ids(self) -> List[str]:
-        """Get all task type IDs for CLI validation"""
+        """Get all task type IDs for CLI validation."""
         async with aiosqlite.connect(self.db_path) as db:
+            await self._ensure_table_exists(db)
             cursor = await db.execute("SELECT id FROM task_types ORDER BY name ASC")
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
@@ -97,6 +227,7 @@ class TaskTypeManager:
 
         try:
             async with aiosqlite.connect(self.db_path) as db:
+                await self._ensure_table_exists(db)
                 await db.execute(
                     """
                     INSERT INTO task_types
@@ -171,6 +302,7 @@ class TaskTypeManager:
 
         try:
             async with aiosqlite.connect(self.db_path) as db:
+                await self._ensure_table_exists(db)
                 await db.execute(
                     f"UPDATE task_types SET {', '.join(updates)} WHERE id = ?",
                     params,
@@ -196,6 +328,7 @@ class TaskTypeManager:
 
         # Check if there are active tasks with this type
         async with aiosqlite.connect(self.db_path) as db:
+            await self._ensure_table_exists(db)
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM work_items WHERE type = ? AND status NOT IN ('completed', 'failed')",
                 (type_id,),
@@ -220,6 +353,7 @@ class TaskTypeManager:
     async def export_task_types(self) -> List[Dict]:
         """Export all non-default task types for version control"""
         async with aiosqlite.connect(self.db_path) as db:
+            await self._ensure_table_exists(db)
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM task_types WHERE is_default = 0 ORDER BY name ASC"

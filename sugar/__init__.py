@@ -67,18 +67,51 @@ See Also
 - Configuration: ``.sugar/config.yaml``
 """
 
-from sugar.__version__ import (
-    __version__,
-    __title__,
-    __description__,
-    __author__,
-    __author_email__,
-    __url__,
-    get_version_info,
-)
+# Version info is lazy-loaded to avoid importing importlib.metadata (~16ms)
+# and tomllib at package import time. This speeds up CLI commands that don't
+# need version information.
+
+
+def __getattr__(name):
+    """Lazy load version attributes to avoid import overhead."""
+    version_attrs = {
+        "__version__",
+        "__title__",
+        "__description__",
+        "__author__",
+        "__author_email__",
+        "__url__",
+        "get_version_info",
+    }
+    if name in version_attrs:
+        from sugar.__version__ import (
+            __version__,
+            __title__,
+            __description__,
+            __author__,
+            __author_email__,
+            __url__,
+            get_version_info,
+        )
+
+        # Cache in module globals to avoid repeated imports
+        globals().update(
+            {
+                "__version__": __version__,
+                "__title__": __title__,
+                "__description__": __description__,
+                "__author__": __author__,
+                "__author_email__": __author_email__,
+                "__url__": __url__,
+                "get_version_info": get_version_info,
+            }
+        )
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
-    # Version information
+    # Version information (lazy-loaded)
     "__version__",
     "__title__",
     "__description__",

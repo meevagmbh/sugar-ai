@@ -2,8 +2,11 @@
 
 import json
 import platform
+import re
 import shutil
+import stat
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -13,28 +16,42 @@ import pytest
 PLUGIN_DIR = Path(".claude-plugin")
 
 
+@pytest.fixture(scope="module")
+def mcp_server_path():
+    """Get MCP server path (module-scoped for efficiency)"""
+    return PLUGIN_DIR / "mcp-server" / "sugar-mcp.js"
+
+
+def _initialize_sugar_project(project_dir: Path) -> subprocess.CompletedProcess:
+    """Helper function to initialize a Sugar project in a directory."""
+    return subprocess.run(
+        ["sugar", "init"],
+        cwd=project_dir,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+@pytest.fixture
+def sugar_initialized(tmp_path):
+    """Create temporary project with Sugar initialized.
+
+    This fixture is defined at module level to avoid duplication across test classes.
+    """
+    project_dir = tmp_path / "test_project"
+    project_dir.mkdir()
+
+    result = _initialize_sugar_project(project_dir)
+
+    if result.returncode == 0:
+        yield project_dir
+    else:
+        pytest.skip(f"Sugar not available: {result.stderr}")
+
+
 class TestPluginIntegration:
     """Test end-to-end plugin integration"""
-
-    @pytest.fixture
-    def sugar_initialized(self, tmp_path):
-        """Create temporary project with Sugar initialized"""
-        project_dir = tmp_path / "test_project"
-        project_dir.mkdir()
-
-        # Try to initialize Sugar
-        result = subprocess.run(
-            ["sugar", "init"],
-            cwd=project_dir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-
-        if result.returncode == 0:
-            yield project_dir
-        else:
-            pytest.skip(f"Sugar not available: {result.stderr}")
 
     def test_sugar_cli_available(self):
         """Verify Sugar CLI is installed and accessible"""
@@ -98,21 +115,12 @@ class TestPluginIntegration:
 class TestMCPServer:
     """Test MCP server functionality"""
 
-    @pytest.fixture
-    def mcp_server_path(self):
-        """Get MCP server path"""
-        return Path(".claude-plugin/mcp-server/sugar-mcp.js")
-
     def test_mcp_server_exists(self, mcp_server_path):
         """Verify MCP server file exists"""
         assert mcp_server_path.exists()
 
     def test_mcp_server_is_executable(self, mcp_server_path):
         """Verify MCP server is executable"""
-        import os
-        import stat
-        import platform
-
         # On Windows, executability is determined differently
         if platform.system() == "Windows":
             # On Windows, .js files aren't executable in the Unix sense
@@ -120,17 +128,16 @@ class TestMCPServer:
             assert mcp_server_path.exists()
             assert mcp_server_path.stat().st_size > 0
         else:
-            st = os.stat(mcp_server_path)
-            is_executable = bool(st.st_mode & stat.S_IXUSR)
+            file_stat = mcp_server_path.stat()
+            is_executable = bool(file_stat.st_mode & stat.S_IXUSR)
             assert is_executable, "MCP server is not executable"
 
     @pytest.mark.skipif(
-        not Path(".claude-plugin/mcp-server/sugar-mcp.js").exists(),
+        not PLUGIN_DIR.joinpath("mcp-server", "sugar-mcp.js").exists(),
         reason="MCP server not implemented",
     )
     def test_mcp_server_starts(self, mcp_server_path):
-        """Test that MCP server can start"""
-        # This test is basic - just checks if it starts without immediate error
+        """Test that MCP server can start without immediate error."""
         proc = subprocess.Popen(
             ["node", str(mcp_server_path)],
             stdin=subprocess.PIPE,
@@ -140,8 +147,6 @@ class TestMCPServer:
 
         try:
             # Give it a moment to start
-            import time
-
             time.sleep(0.5)
 
             # Check if still running (didn't crash immediately)
@@ -156,13 +161,8 @@ class TestPluginFiles:
 
     def test_no_broken_links_in_docs(self):
         """Verify documentation doesn't have broken relative links"""
-        plugin_dir = Path(".claude-plugin")
-
-        for doc_file in plugin_dir.glob("**/*.md"):
+        for doc_file in PLUGIN_DIR.glob("**/*.md"):
             content = doc_file.read_text(encoding="utf-8")
-
-            # Check for relative file references
-            import re
 
             # Find markdown links like [text](path)
             links = re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content)
@@ -180,7 +180,6 @@ class TestPluginFiles:
 
     def test_no_hardcoded_paths(self):
         """Verify no hardcoded absolute paths in files"""
-        plugin_dir = Path(".claude-plugin")
 
         # These patterns should not appear in plugin files
         forbidden_patterns = [
@@ -189,7 +188,7 @@ class TestPluginFiles:
             "/home/",  # Linux home (in code, not docs)
         ]
 
-        for file in plugin_dir.glob("**/*.md"):
+        for file in PLUGIN_DIR.glob("**/*.md"):
             if file.name in [
                 "MCP_SERVER_IMPLEMENTATION.md",
                 "TESTING_PLAN.md",
@@ -210,9 +209,7 @@ class TestPluginFiles:
 
     def test_json_files_valid(self):
         """Verify all JSON files are valid"""
-        plugin_dir = Path(".claude-plugin")
-
-        for json_file in plugin_dir.glob("**/*.json"):
+        for json_file in PLUGIN_DIR.glob("**/*.json"):
             with open(json_file, encoding="utf-8") as f:
                 try:
                     json.load(f)
@@ -273,12 +270,11 @@ class TestCrossPlatform:
         system = platform.system()
         assert system in ["Darwin", "Linux", "Windows"]
 
-        # All plugin files should be readable
-        plugin_dir = PLUGIN_DIR
-        if not plugin_dir.exists():
+        if not PLUGIN_DIR.exists():
             pytest.skip("Plugin directory not found")
 
-        for path in plugin_dir.rglob("*"):
+        # All plugin files should be readable and non-empty
+        for path in PLUGIN_DIR.rglob("*"):
             if path.is_file():
                 assert path.exists()
                 assert path.stat().st_size > 0
@@ -304,11 +300,10 @@ class TestCrossPlatform:
 
     def test_line_endings_consistency(self):
         """Verify consistent line endings (Unix-style)"""
-        plugin_dir = PLUGIN_DIR
-        if not plugin_dir.exists():
+        if not PLUGIN_DIR.exists():
             pytest.skip("Plugin directory not found")
 
-        for path in plugin_dir.rglob("*.md"):
+        for path in PLUGIN_DIR.rglob("*.md"):
             content = path.read_bytes()
             # Check for Windows-style line endings
             if b"\r\n" in content:
@@ -318,16 +313,13 @@ class TestCrossPlatform:
 
     def test_file_permissions_reasonable(self):
         """Verify file permissions are reasonable"""
-        plugin_dir = PLUGIN_DIR
-        if not plugin_dir.exists():
+        if not PLUGIN_DIR.exists():
             pytest.skip("Plugin directory not found")
 
         if platform.system() == "Windows":
             pytest.skip("Permission test not applicable on Windows")
 
-        import stat
-
-        for path in plugin_dir.rglob("*"):
+        for path in PLUGIN_DIR.rglob("*"):
             if path.is_file():
                 mode = path.stat().st_mode
                 # File should be readable by owner
@@ -366,8 +358,7 @@ class TestSecurity:
 
     def test_no_secrets_in_plugin_files(self):
         """Verify no secrets committed to plugin files (excluding documentation examples)"""
-        plugin_dir = PLUGIN_DIR
-        if not plugin_dir.exists():
+        if not PLUGIN_DIR.exists():
             pytest.skip("Plugin directory not found")
 
         # Common secret patterns to check for
@@ -387,7 +378,7 @@ class TestSecurity:
 
         # Only check actual code files (.js, .py) not documentation
         # Documentation files (.md) may contain examples showing what NOT to do
-        for path in plugin_dir.rglob("*"):
+        for path in PLUGIN_DIR.rglob("*"):
             if path.is_file() and path.suffix in [".js", ".py"]:
                 content = path.read_text(encoding="utf-8")
                 for pattern in secret_patterns:
@@ -397,11 +388,8 @@ class TestSecurity:
 
     def test_no_hardcoded_credentials(self):
         """Verify no hardcoded credentials in plugin files"""
-        plugin_dir = PLUGIN_DIR
-        if not plugin_dir.exists():
+        if not PLUGIN_DIR.exists():
             pytest.skip("Plugin directory not found")
-
-        import re
 
         # Patterns that might indicate hardcoded credentials
         credential_patterns = [
@@ -410,7 +398,7 @@ class TestSecurity:
             re.compile(r'secret\s*=\s*["\'][^"\']+["\']', re.IGNORECASE),
         ]
 
-        for path in plugin_dir.rglob("*"):
+        for path in PLUGIN_DIR.rglob("*"):
             if path.is_file() and path.suffix in [".js", ".py"]:
                 content = path.read_text(encoding="utf-8")
                 for pattern in credential_patterns:
@@ -432,29 +420,8 @@ class TestSecurity:
 class TestPerformance:
     """Performance tests for plugin"""
 
-    @pytest.fixture
-    def sugar_initialized(self, tmp_path):
-        """Create temporary project with Sugar initialized"""
-        project_dir = tmp_path / "test_project"
-        project_dir.mkdir()
-
-        result = subprocess.run(
-            ["sugar", "init"],
-            cwd=project_dir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-
-        if result.returncode == 0:
-            yield project_dir
-        else:
-            pytest.skip(f"Sugar not available: {result.stderr}")
-
     def test_multiple_rapid_commands(self, sugar_initialized):
         """Test handling multiple commands in quick succession"""
-        import time
-
         start_time = time.time()
         success_count = 0
 
@@ -478,9 +445,6 @@ class TestPerformance:
 
     def test_status_command_performance(self, sugar_initialized):
         """Test status command returns quickly"""
-        import time
-
-        # Run status command and measure time
         start_time = time.time()
         result = subprocess.run(
             ["sugar", "status"],

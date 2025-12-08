@@ -117,29 +117,81 @@ sugar:
       root_path: ".."  # Path to analyze
       file_extensions: [".py", ".js", ".ts", ".jsx", ".tsx"]
       excluded_dirs: [
-        "node_modules", ".git", "__pycache__", 
-        "venv", ".venv", "env", ".env", "ENV", 
+        "node_modules", ".git", "__pycache__",
+        "venv", ".venv", "env", ".env", "ENV",
         "env.bak", "venv.bak", "virtualenv",
         "build", "dist", ".tox", ".nox",
         "coverage", "htmlcov", ".pytest_cache",
         ".sugar", ".claude"
       ]
       max_files_per_scan: 50
-      
+
     test_coverage:
       enabled: true
       root_path: ".."  # Path to analyze
       source_dirs: ["src", "lib", "app", "system", "sugar"]
       test_dirs: ["tests", "test", "__tests__", "spec"]
       excluded_dirs: [
-        "node_modules", ".git", "__pycache__", 
-        "venv", ".venv", "env", ".env", "ENV", 
+        "node_modules", ".git", "__pycache__",
+        "venv", ".venv", "env", ".env", "ENV",
         "env.bak", "venv.bak", "virtualenv",
         "build", "dist", ".tox", ".nox",
         "coverage", "htmlcov", ".pytest_cache",
         ".sugar", ".claude"
       ]
-      
+
+    # External Tools Discovery
+    # Configure external code quality tools to run and interpret
+    external_tools:
+      enabled: true
+
+      # Tool definitions - each tool has a name and command
+      # Environment variables in commands are expanded at runtime ($VAR or ${VAR})
+      tools: []
+        # Example tools (uncomment to enable):
+        # - name: eslint
+        #   command: "npx eslint . --format json"
+        # - name: ruff
+        #   command: "ruff check . --output-format json"
+        # - name: bandit
+        #   command: "bandit -r src/ -f json"
+        # - name: mypy
+        #   command: "mypy . --output json"
+
+      # Directory for custom prompt templates (optional)
+      # Templates can be .txt or .md files with ${tool_name}, ${command}, ${raw_output} placeholders
+      templates_dir: ".sugar/templates"
+
+      # Default template to use when auto-detection fails
+      # Options: default, security, coverage, lint, or custom template name
+      default_template: "default"
+
+      # Tool-to-template mappings (override auto-detection)
+      # Maps tool names to specific template types
+      tool_mappings:
+        # Security tools -> security template
+        bandit: "security"
+        snyk: "security"
+        trivy: "security"
+        # Coverage tools -> coverage template
+        pytest-cov: "coverage"
+        coverage: "coverage"
+        # Linting tools -> lint template
+        eslint: "lint"
+        pylint: "lint"
+        ruff: "lint"
+        mypy: "lint"
+
+      # Maximum tasks to generate from a single tool run
+      max_tasks_per_tool: 50
+
+      # Grouping settings for task creation
+      grouping:
+        # Group issues by: file, directory, rule, or none
+        default_strategy: "rule"
+        # Minimum issues before grouping kicks in
+        min_issues_for_grouping: 5
+
   # Storage
   storage:
     database: "sugar.db"

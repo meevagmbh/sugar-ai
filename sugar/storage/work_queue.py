@@ -11,6 +11,8 @@ from typing import List, Dict, Any, Optional
 import aiosqlite
 import uuid
 
+from .task_type_manager import TaskTypeManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,61 +140,8 @@ class WorkQueue:
                 """
                 )
 
-                # Insert default task types
-                default_types = [
-                    {
-                        "id": "bug_fix",
-                        "name": "Bug Fix",
-                        "description": "Fix existing issues or bugs",
-                        "agent": "tech-lead",
-                        "commit_template": "fix: {title}",
-                        "emoji": "🐛",
-                        "file_patterns": '["src/components/buggy_component.py", "tests/test_fix.py"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "feature",
-                        "name": "Feature",
-                        "description": "Add new functionality",
-                        "agent": "general-purpose",
-                        "commit_template": "feat: {title}",
-                        "emoji": "✨",
-                        "file_patterns": '["src/features/new_feature.py", "src/api/feature_endpoint.py"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "test",
-                        "name": "Test",
-                        "description": "Add or update tests",
-                        "agent": "general-purpose",
-                        "commit_template": "test: {title}",
-                        "emoji": "🧪",
-                        "file_patterns": '["tests/test_*.py", "spec/*.spec.js"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "refactor",
-                        "name": "Refactor",
-                        "description": "Code refactoring without changing functionality",
-                        "agent": "code-reviewer",
-                        "commit_template": "refactor: {title}",
-                        "emoji": "♻️",
-                        "file_patterns": '["src/legacy_code.py", "src/improved_code.py"]',
-                        "is_default": 1,
-                    },
-                    {
-                        "id": "documentation",
-                        "name": "Documentation",
-                        "description": "Documentation updates and improvements",
-                        "agent": "general-purpose",
-                        "commit_template": "docs: {title}",
-                        "emoji": "📝",
-                        "file_patterns": '["README.md", "docs/api_documentation.md"]',
-                        "is_default": 1,
-                    },
-                ]
-
-                for task_type in default_types:
+                # Insert default task types (use shared defaults from TaskTypeManager)
+                for task_type in TaskTypeManager.DEFAULT_TASK_TYPES:
                     await db.execute(
                         """
                         INSERT INTO task_types

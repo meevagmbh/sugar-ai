@@ -13,6 +13,7 @@ from ..discovery.error_monitor import ErrorLogMonitor
 from ..discovery.github_watcher import GitHubWatcher
 from ..discovery.code_quality import CodeQualityScanner
 from ..discovery.test_coverage import TestCoverageAnalyzer
+from ..discovery.external_tool_discovery import ExternalToolDiscovery
 from ..executor.claude_wrapper import ClaudeWrapper
 from ..storage.work_queue import WorkQueue
 from ..learning.feedback_processor import FeedbackProcessor
@@ -96,6 +97,23 @@ class SugarLoop:
             coverage_config = self.config["sugar"]["discovery"].get("test_coverage", {})
             coverage_config.setdefault("root_path", ".")
             self.discovery_modules.append(TestCoverageAnalyzer(coverage_config))
+
+        # External tools discovery (eslint, ruff, mypy, etc.)
+        external_tools_config = self.config["sugar"]["discovery"].get(
+            "external_tools", {}
+        )
+        if external_tools_config.get("enabled", False):
+            self.discovery_modules.append(
+                ExternalToolDiscovery(
+                    config=external_tools_config,
+                    working_dir=Path.cwd(),
+                    claude_wrapper=(
+                        self.claude_executor
+                        if external_tools_config.get("use_claude_interpretation", False)
+                        else None
+                    ),
+                )
+            )
 
     def _load_config(self, config_path: str) -> dict:
         """Load Sugar configuration"""

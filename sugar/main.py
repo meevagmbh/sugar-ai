@@ -2,7 +2,6 @@
 """
 Sugar Main Entry Point - Start the AI-powered autonomous development system
 """
-import asyncio
 import json
 import logging
 import signal
@@ -11,8 +10,37 @@ from pathlib import Path
 import click
 from datetime import datetime
 
-from .core.loop import SugarLoop
-from .__version__ import get_version_info, __version__
+# Note: asyncio is imported lazily inside commands to avoid ~20ms import overhead
+# for commands that don't need async operations (like --help, --version)
+
+# Note: Version info is imported lazily to avoid loading importlib.metadata
+# and tomllib for commands that don't need version information (~18ms savings)
+_version_info_cache = None
+_version_cache = None
+
+
+def _get_version_info():
+    """Lazy loader for version info to avoid import overhead."""
+    global _version_info_cache
+    if _version_info_cache is None:
+        from .__version__ import get_version_info
+
+        _version_info_cache = get_version_info()
+    return _version_info_cache
+
+
+def _get_version():
+    """Lazy loader for version string."""
+    global _version_cache
+    if _version_cache is None:
+        from .__version__ import __version__
+
+        _version_cache = __version__
+    return _version_cache
+
+
+# Note: SugarLoop is imported lazily in the loop() command to avoid
+# loading heavy dependencies (github, requests) for lightweight commands
 
 
 def validate_task_type(ctx, param, value):
@@ -165,7 +193,7 @@ def cli(ctx, config, debug, version):
     """
     # Handle version request
     if version:
-        click.echo(get_version_info())
+        click.echo(_get_version_info())
         ctx.exit()
 
     # If no command was given, show help
@@ -175,6 +203,7 @@ def cli(ctx, config, debug, version):
 
     # Setup logging with proper configuration
     log_file_path = ".sugar/sugar.log"  # Default
+    config_data = None
     if Path(config).exists():
         try:
             import yaml
@@ -196,6 +225,7 @@ def cli(ctx, config, debug, version):
 
     ctx.ensure_object(dict)
     ctx.obj["config"] = config
+    ctx.obj["config_data"] = config_data  # Cache parsed config to avoid re-parsing
 
 
 @cli.command()
@@ -210,7 +240,7 @@ def init(project_dir):
     project_path = Path(project_dir).resolve()
     sugar_dir = project_path / ".sugar"
 
-    click.echo(f"🚀 Initializing {get_version_info()} in {project_path}")
+    click.echo(f"🚀 Initializing {_get_version_info()} in {project_path}")
 
     try:
         # Create .sugar directory
@@ -261,7 +291,7 @@ def init(project_dir):
         with open(logs_dir / ".gitkeep", "w") as f:
             f.write("# This directory is monitored by Sugar for error logs\n")
 
-        click.echo(f"✅ {get_version_info()} initialized successfully! 🍰")
+        click.echo(f"✅ {_get_version_info()} initialized successfully! 🍰")
         click.echo(f"📁 Config: {config_path}")
         click.echo(f"📁 Database: {sugar_dir / 'sugar.db'}")
         click.echo(f"📁 Logs: {sugar_dir / 'logs'}")
@@ -416,6 +446,8 @@ def add(
                 task_data["id"] = str(uuid.uuid4())
 
         # Add to queue
+        import asyncio
+
         asyncio.run(_add_task_async(work_queue, task_data))
 
         urgency = (
@@ -477,6 +509,8 @@ def list(ctx, status, limit, task_type, output_format):
         work_queue = WorkQueue(config["sugar"]["storage"]["database"])
 
         # Get tasks
+        import asyncio
+
         tasks = asyncio.run(_list_tasks_async(work_queue, status, limit, task_type))
 
         if not tasks:
@@ -601,6 +635,8 @@ def view(ctx, task_id, output_format):
         work_queue = WorkQueue(config["sugar"]["storage"]["database"])
 
         # Get specific task
+        import asyncio
+
         task = asyncio.run(_get_task_by_id_async(work_queue, task_id))
 
         if not task:
@@ -699,6 +735,8 @@ def remove(ctx, task_id):
         work_queue = WorkQueue(config["sugar"]["storage"]["database"])
 
         # Remove the task
+        import asyncio
+
         success = asyncio.run(_remove_task_async(work_queue, task_id))
 
         if success:
@@ -733,6 +771,8 @@ def hold(ctx, task_id, reason):
             success = await work_queue.hold_work(task_id, reason)
             return success
 
+        import asyncio
+
         success = asyncio.run(_hold_task_async())
 
         if success:
@@ -766,6 +806,8 @@ def release(ctx, task_id):
             await work_queue.initialize()
             success = await work_queue.release_work(task_id)
             return success
+
+        import asyncio
 
         success = asyncio.run(_release_task_async())
 
@@ -828,6 +870,8 @@ def update(ctx, task_id, title, description, priority, task_type, status):
             updates["status"] = status
 
         updates["updated_at"] = datetime.utcnow().isoformat()
+
+        import asyncio
 
         # Update the task
         success = asyncio.run(_update_task_async(work_queue, task_id, updates))
@@ -1172,6 +1216,8 @@ def status(ctx):
 
         work_queue = WorkQueue(config["sugar"]["storage"]["database"])
 
+        import asyncio
+
         # Get statistics
         stats = asyncio.run(_get_status_async(work_queue))
 
@@ -1340,6 +1386,10 @@ def run(ctx, dry_run, once, validate):
     global sugar_loop
 
     try:
+        # Import SugarLoop lazily to avoid loading heavy dependencies
+        # (github, requests) for commands that don't need them
+        from .core.loop import SugarLoop
+
         # Initialize Sugar
         config = ctx.obj["config"]
         sugar_loop = SugarLoop(config)
@@ -1348,6 +1398,8 @@ def run(ctx, dry_run, once, validate):
         if dry_run:
             sugar_loop.config["sugar"]["dry_run"] = True
             logger.info("🧪 Dry run mode enabled via command line")
+
+        import asyncio
 
         # Validation mode
         if validate:
@@ -1414,7 +1466,7 @@ async def validate_config(sugar_loop):
 
 async def run_once(sugar_loop):
     """Run Sugar for one cycle and exit"""
-    logger.info(f"🔄 Running {get_version_info()} for one cycle...")
+    logger.info(f"🔄 Running {_get_version_info()} for one cycle...")
 
     # Initialize
     await sugar_loop.work_queue.initialize()
@@ -1437,6 +1489,8 @@ async def run_once(sugar_loop):
 
 async def run_continuous(sugar_loop):
     """Run Sugar continuously"""
+    import asyncio
+
     global shutdown_event
     shutdown_event = asyncio.Event()
 
@@ -1459,7 +1513,7 @@ async def run_continuous(sugar_loop):
         with open(pidfile, "w") as f:
             f.write(str(os.getpid()))
 
-        logger.info(f"🚀 Starting {get_version_info()} in continuous mode...")
+        logger.info(f"🚀 Starting {_get_version_info()} in continuous mode...")
         logger.info("💡 Press Ctrl+C to stop Sugar gracefully")
         logger.info("💡 Or run 'sugar stop' from another terminal")
         logger.info("💡 Or run 'sugar stop --force' to force immediate termination")
@@ -2059,7 +2113,7 @@ def debug(ctx, format, output, include_sensitive):
         # Collect diagnostic information
         diagnostic = {
             "timestamp": datetime.now().isoformat(),
-            "sugar_version": get_version_info(),
+            "sugar_version": _get_version_info(),
             "system_info": {
                 "platform": platform.platform(),
                 "python_version": platform.python_version(),
@@ -2380,6 +2434,8 @@ def dedupe(ctx, dry_run):
                 click.echo("❌ Operation cancelled")
 
     try:
+        import asyncio
+
         asyncio.run(_dedupe_work())
     except Exception as e:
         click.echo(f"❌ Error deduplicating work items: {e}", err=True)
@@ -2493,6 +2549,8 @@ def cleanup(ctx, dry_run):
                 click.echo("❌ Operation cancelled")
 
     try:
+        import asyncio
+
         asyncio.run(_cleanup_bogus_work())
     except Exception as e:
         click.echo(f"❌ Error cleaning up bogus work items: {e}", err=True)
@@ -2517,14 +2575,17 @@ def task_type(ctx):
 @click.pass_context
 def list_task_types(ctx, format):
     """List all task types"""
-    import yaml
     from .storage.task_type_manager import TaskTypeManager
 
     async def _list_task_types():
-        # Load configuration
-        config_file = ctx.obj["config"]
-        with open(config_file, "r") as f:
-            config = yaml.safe_load(f)
+        # Use cached config from CLI context to avoid re-parsing (~10ms savings)
+        config = ctx.obj.get("config_data")
+        if config is None:
+            import yaml
+
+            config_file = ctx.obj["config"]
+            with open(config_file, "r") as f:
+                config = yaml.safe_load(f)
 
         # Initialize TaskTypeManager
         db_path = config["sugar"]["storage"]["database"]
@@ -2556,6 +2617,8 @@ def list_task_types(ctx, format):
                 click.echo()
 
     try:
+        import asyncio
+
         asyncio.run(_list_task_types())
     except Exception as e:
         click.echo(f"❌ Error listing task types: {e}", err=True)
@@ -2604,6 +2667,8 @@ def add_task_type(ctx, type_id, name, description, agent, commit_template, emoji
             sys.exit(1)
 
     try:
+        import asyncio
+
         asyncio.run(_add_task_type())
     except Exception as e:
         click.echo(f"❌ Error adding task type: {e}", err=True)
@@ -2646,6 +2711,8 @@ def edit_task_type(ctx, type_id, name, description, agent, commit_template, emoj
             sys.exit(1)
 
     try:
+        import asyncio
+
         asyncio.run(_edit_task_type())
     except Exception as e:
         click.echo(f"❌ Error editing task type: {e}", err=True)
@@ -2698,6 +2765,8 @@ def remove_task_type(ctx, type_id, force):
             sys.exit(1)
 
     try:
+        import asyncio
+
         asyncio.run(_remove_task_type())
     except Exception as e:
         click.echo(f"❌ Error removing task type: {e}", err=True)
@@ -2746,6 +2815,8 @@ def show_task_type(ctx, type_id):
             click.echo(f"Updated: {task_type['updated_at']}")
 
     try:
+        import asyncio
+
         asyncio.run(_show_task_type())
     except Exception as e:
         click.echo(f"❌ Error showing task type: {e}", err=True)
@@ -2775,7 +2846,7 @@ def export_task_types(ctx, file):
         export_data = {
             "task_types": task_types,
             "exported_at": datetime.now().isoformat(),
-            "sugar_version": __version__,
+            "sugar_version": _get_version(),
         }
 
         output = json.dumps(export_data, indent=2)
@@ -2788,6 +2859,8 @@ def export_task_types(ctx, file):
             click.echo(output)
 
     try:
+        import asyncio
+
         asyncio.run(_export_task_types())
     except Exception as e:
         click.echo(f"❌ Error exporting task types: {e}", err=True)
@@ -2826,10 +2899,18 @@ def import_task_types(ctx, file, overwrite):
         click.echo(f"✅ Imported {imported_count}/{len(task_types)} task types")
 
     try:
+        import asyncio
+
         asyncio.run(_import_task_types())
     except Exception as e:
         click.echo(f"❌ Error importing task types: {e}", err=True)
         sys.exit(1)
+
+
+# Register discover command from cli module
+from .cli.discover import discover as discover_command
+
+cli.add_command(discover_command, name="discover")
 
 
 if __name__ == "__main__":

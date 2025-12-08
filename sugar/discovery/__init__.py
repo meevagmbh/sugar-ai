@@ -34,6 +34,16 @@ a different source of potential work:
     - Detects complex functions that need additional testing
     - Prioritizes based on file importance and complexity metrics
 
+**Prompt Templates** (``PromptTemplateManager``):
+    - Manages templates for external tool output interpretation
+    - Supports security analysis, test coverage, and lint analysis templates
+    - Enables consistent AI-powered interpretation of tool outputs
+
+**External Tool Configuration** (``ExternalToolConfig``):
+    - Manages configuration for external analysis tools
+    - Validates tool configuration schemas
+    - Supports environment variable expansion in tool configurations
+
 Usage Example
 -------------
 Basic discovery operations::
@@ -91,16 +101,58 @@ See Also
 
 from .code_quality import CodeQualityScanner
 from .error_monitor import ErrorLogMonitor
+from .external_tool_discovery import ExternalToolDiscovery
 from .github_watcher import GitHubWatcher
 from .test_coverage import TestCoverageAnalyzer
+from .prompt_templates import (
+    PromptTemplateManager,
+    create_tool_interpretation_prompt,
+    DEFAULT_TOOL_INTERPRETATION_TEMPLATE,
+    SECURITY_ANALYSIS_TEMPLATE,
+    TEST_COVERAGE_TEMPLATE,
+    LINT_ANALYSIS_TEMPLATE,
+)
+from .external_tool_config import (
+    ExternalToolConfig,
+    ExternalToolConfigError,
+    validate_external_tools_config,
+    parse_external_tools_from_discovery_config,
+    expand_env_vars,
+    get_external_tools_config_schema,
+)
+from .orchestrator import (
+    ToolOrchestrator,
+    ToolResult,
+    DEFAULT_TIMEOUT_SECONDS,
+)
 
 __all__ = [
     # Error and log monitoring
     "ErrorLogMonitor",  # Scans log files for errors and generates maintenance tasks
+    # External tool discovery
+    "ExternalToolDiscovery",  # Runs external tools (eslint, ruff, etc.) and creates work items
     # GitHub integration
     "GitHubWatcher",  # Monitors GitHub issues and integrates with repository
     # Code quality analysis
     "CodeQualityScanner",  # Scans source files for code quality issues
     # Test coverage analysis
     "TestCoverageAnalyzer",  # Identifies test coverage gaps and quality issues
+    # Prompt templates for external tool interpretation
+    "PromptTemplateManager",
+    "create_tool_interpretation_prompt",
+    "DEFAULT_TOOL_INTERPRETATION_TEMPLATE",
+    "SECURITY_ANALYSIS_TEMPLATE",
+    "TEST_COVERAGE_TEMPLATE",
+    "LINT_ANALYSIS_TEMPLATE",
+    # External tool configuration
+    "ExternalToolConfig",
+    "ExternalToolConfigError",
+    "validate_external_tools_config",
+    "parse_external_tools_from_discovery_config",
+    "expand_env_vars",
+    "get_external_tools_config_schema",
+    # Tool orchestration
+    "ToolOrchestrator",
+    "ToolResult",
+    "DEFAULT_TIMEOUT_SECONDS",
 ]
