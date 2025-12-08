@@ -1,12 +1,32 @@
 """
-Claude Invoker - Send tool output to Claude Code for interpretation
+Claude Invoker - Send tool output to Claude Code for interpretation.
 
-This module reuses the existing ClaudeWrapper to send external tool output
-to Claude Code for interpretation and automatic task generation.
+This module bridges external development tools (linters, security scanners, test
+runners) with Claude Code by sending their output for AI-powered interpretation.
+Claude analyzes the output and generates `sugar add` commands to create actionable
+tasks in the work queue.
 
-The interpreter receives file paths to tool output (not inline content),
-allowing Claude Code to read the files directly. This is more efficient
-for large outputs and integrates with the orchestrator's temp file management.
+Architecture Overview:
+    1. External tools produce output (e.g., ESLint, pytest, bandit)
+    2. Output is written to temp files by the ToolOrchestrator
+    3. ToolOutputInterpreter sends file paths to Claude Code via ClaudeWrapper
+    4. Claude reads the files, interprets findings, and generates commands
+    5. Commands are parsed and optionally executed to create sugar tasks
+
+Key Design Decisions:
+    - File paths are passed instead of inline content for efficiency with large outputs
+    - Prompt templates are used for consistent, tool-specific interpretation guidance
+    - Command parsing handles quoted strings and validates all options before execution
+
+Usage Example:
+    >>> interpreter = ToolOutputInterpreter()
+    >>> result = await interpreter.interpret_output(
+    ...     tool_name="eslint",
+    ...     command="npx eslint src/",
+    ...     output_file_path=Path("/tmp/eslint_output.txt")
+    ... )
+    >>> if result.success:
+    ...     interpreter.execute_commands(result.commands, dry_run=False)
 """
 
 import asyncio
@@ -26,7 +46,37 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ParsedCommand:
-    """A parsed sugar add command"""
+    """
+    A parsed `sugar add` command extracted from Claude's response.
+
+    This dataclass represents a single task-creation command after parsing
+    from Claude's interpretation output. It captures all supported options
+    for the `sugar add` CLI command.
+
+    Attributes:
+        title: The task title (required). This is the positional argument
+            in `sugar add "Fix authentication bug"`.
+        task_type: Task category (default: "bug_fix"). Supported types include
+            bug_fix, feature, refactor, documentation, test, security.
+        priority: Task priority level 1-5 (default: 3). Lower numbers = higher priority.
+        description: Optional detailed description of the task.
+        urgent: Whether the task is marked urgent (default: False).
+        status: Initial task status, either "pending" or "hold" (default: "pending").
+        raw_command: The original command string before parsing (for debugging).
+        valid: Whether parsing succeeded (default: True). Set False if parsing fails.
+        validation_error: Error message if valid=False, empty string otherwise.
+
+    Example:
+        Command: `sugar add "Fix XSS vulnerability" --type security --priority 1 --urgent`
+        Results in:
+            ParsedCommand(
+                title="Fix XSS vulnerability",
+                task_type="security",
+                priority=1,
+                urgent=True,
+                ...
+            )
+    """
 
     title: str
     task_type: str = "bug_fix"
@@ -41,7 +91,28 @@ class ParsedCommand:
 
 @dataclass
 class InterpretationResult:
-    """Result of interpreting tool output"""
+    """
+    Result of Claude's interpretation of external tool output.
+
+    Contains both the parsed commands and metadata about the interpretation
+    process, including timing and error information for diagnostics.
+
+    Attributes:
+        success: Whether Claude successfully interpreted the output.
+            False indicates a communication error, timeout, or processing failure.
+        commands: List of ParsedCommand objects extracted from Claude's response.
+            Empty if success=False or if Claude found no issues to report.
+        raw_response: The complete text response from Claude before command extraction.
+            Useful for debugging or logging the full interpretation context.
+        error_message: Description of what went wrong if success=False.
+            Empty string on successful interpretation.
+        execution_time: Time in seconds Claude took to process the interpretation.
+            Useful for performance monitoring and timeout tuning.
+
+    Note:
+        A successful interpretation (success=True) may still have zero commands
+        if the tool output contained no actionable issues.
+    """
 
     success: bool
     commands: List[ParsedCommand] = field(default_factory=list)
@@ -52,10 +123,35 @@ class InterpretationResult:
 
 class ToolOutputInterpreter:
     """
-    Interprets external tool output using Claude Code.
+    Interprets external tool output using Claude Code to generate actionable tasks.
 
-    Uses the existing ClaudeWrapper to send tool output to Claude Code,
-    which interprets the output and generates sugar add commands.
+    This class serves as the bridge between external development tools and Sugar's
+    task management system. It sends tool output to Claude Code for intelligent
+    analysis, then parses the resulting `sugar add` commands into structured
+    task objects.
+
+    The interpreter uses ClaudeWrapper internally for Claude Code communication,
+    supporting customizable prompt templates for different tool types (linters,
+    security scanners, test runners, etc.).
+
+    Typical workflow:
+        1. Create interpreter (optionally with custom config)
+        2. Call interpret_output() with tool details and output file path
+        3. Either manually execute_commands() or use interpret_and_execute()
+
+    Attributes:
+        wrapper: ClaudeWrapper instance for Claude Code communication.
+        custom_template: User-provided prompt template, or None to use defaults.
+
+    Example:
+        >>> interpreter = ToolOutputInterpreter()
+        >>> result = await interpreter.interpret_output(
+        ...     tool_name="ruff",
+        ...     command="ruff check .",
+        ...     output_file_path=Path("/tmp/ruff_output.txt"),
+        ...     template_type="lint"
+        ... )
+        >>> print(f"Found {len(result.commands)} issues to fix")
     """
 
     def __init__(
@@ -64,13 +160,20 @@ class ToolOutputInterpreter:
         wrapper_config: Optional[Dict[str, Any]] = None,
     ):
         """
-        Initialize the interpreter.
+        Initialize the interpreter with optional custom configuration.
 
         Args:
-            prompt_template: Optional custom prompt template. If not provided,
-                           uses the default from prompt_templates module.
-            wrapper_config: Configuration dict for ClaudeWrapper. If not provided,
-                          uses sensible defaults.
+            prompt_template: Custom prompt template string with placeholders.
+                Supported placeholders: ${tool_name}, ${command}, ${output_file_path}.
+                If not provided, uses templates from prompt_templates module which
+                auto-detect the appropriate template based on tool name.
+            wrapper_config: Configuration dict for ClaudeWrapper. Supported keys:
+                - command (str): Claude CLI command (default: "claude")
+                - timeout (int): Interpretation timeout in seconds (default: 300)
+                - context_file (str): Path for context persistence
+                - use_continuous (bool): Reuse sessions (default: False)
+                - dry_run (bool): Skip actual execution (default: False)
+                Any provided values override the defaults.
         """
         # Default wrapper config for tool interpretation
         default_config = {
@@ -169,13 +272,21 @@ class ToolOutputInterpreter:
 
     async def _execute_claude_prompt(self, prompt: str) -> Dict[str, Any]:
         """
-        Execute a prompt via the Claude wrapper.
+        Execute a prompt via the Claude wrapper's internal CLI execution.
+
+        This is a low-level method that bypasses the full work item processing
+        pipeline and directly invokes Claude CLI with the given prompt.
 
         Args:
-            prompt: The prompt to send to Claude
+            prompt: The complete prompt string to send to Claude Code.
+                Should include all context needed for interpretation.
 
         Returns:
-            Dict with success, output, error, execution_time keys
+            Dict containing:
+                - success (bool): Whether Claude responded without errors
+                - output (str): Claude's stdout response text
+                - error (str): Error message or stderr content if failed
+                - execution_time (float): Processing duration in seconds
         """
         # Create a minimal work item for the wrapper
         work_item = {
@@ -213,13 +324,19 @@ class ToolOutputInterpreter:
 
     def _extract_commands(self, response: str) -> List[ParsedCommand]:
         """
-        Extract sugar add commands from Claude's response.
+        Extract and parse `sugar add` commands from Claude's response text.
+
+        Scans each line of Claude's response for lines starting with "sugar add ",
+        then parses each matching line into a ParsedCommand. Invalid or malformed
+        commands are logged and skipped.
 
         Args:
-            response: The raw response from Claude
+            response: The complete raw response text from Claude Code.
+                Expected to contain zero or more `sugar add` commands, one per line.
 
         Returns:
-            List of ParsedCommand objects
+            List of successfully parsed ParsedCommand objects.
+            Commands that fail validation are excluded from the result.
         """
         commands = []
         lines = response.split("\n")
@@ -245,13 +362,32 @@ class ToolOutputInterpreter:
 
     def _parse_command(self, command_line: str) -> ParsedCommand:
         """
-        Parse a sugar add command line into its components.
+        Parse a single `sugar add` command line into its components.
+
+        Uses shlex for proper handling of quoted strings, then iterates through
+        tokens to extract the title (positional argument) and options (--flags).
+
+        Supported options:
+            --type <value>: Task type (bug_fix, feature, etc.)
+            --priority <int>: Priority level 1-5
+            --description <value>: Detailed task description
+            --status <pending|hold>: Initial task status
+            --urgent: Mark task as urgent (flag, no value)
 
         Args:
-            command_line: The full command line (e.g., 'sugar add "Fix bug" --type bug_fix')
+            command_line: Complete command string, e.g.:
+                'sugar add "Fix bug in auth" --type bug_fix --priority 2'
 
         Returns:
-            ParsedCommand with parsed components
+            ParsedCommand with all fields populated. On parse failure:
+                - valid=False
+                - validation_error contains the failure reason
+                - title may be empty
+
+        Note:
+            Unknown options are silently skipped with debug logging.
+            The title must be a quoted or unquoted positional argument
+            appearing after "sugar add".
         """
         parsed = ParsedCommand(title="", raw_command=command_line)
 
@@ -335,14 +471,24 @@ class ToolOutputInterpreter:
         dry_run: bool = False,
     ) -> int:
         """
-        Execute sugar add commands to create tasks.
+        Execute parsed commands to create tasks in the Sugar work queue.
+
+        Iterates through the provided commands and invokes the `sugar add`
+        CLI for each valid command. Invalid commands (valid=False) are
+        skipped with a warning.
 
         Args:
-            commands: List of ParsedCommand objects to execute
-            dry_run: If True, only log commands without executing
+            commands: List of ParsedCommand objects to execute.
+                Invalid commands are skipped automatically.
+            dry_run: If True, log the commands that would be executed
+                without actually creating tasks. Useful for testing.
 
         Returns:
-            Count of successfully created tasks
+            Count of successfully created tasks (or would-be-created in dry_run mode).
+
+        Note:
+            Each command execution has a 30-second timeout. Failures are logged
+            but don't stop processing of subsequent commands.
         """
         successful = 0
 
@@ -403,17 +549,32 @@ class ToolOutputInterpreter:
         dry_run: bool = False,
     ) -> Dict[str, Any]:
         """
-        Convenience method to interpret tool output and execute commands in one call.
+        Interpret tool output and execute resulting commands in a single operation.
+
+        This is a convenience method that combines interpret_output() and
+        execute_commands() for the common workflow of processing tool output
+        end-to-end.
 
         Args:
-            tool_name: Name of the tool that generated the output
-            command: The command that was executed
-            output_file_path: Path to the file containing the tool output
-            template_type: Optional template type
-            dry_run: If True, don't actually create tasks
+            tool_name: Name of the tool (e.g., "eslint", "ruff", "pytest").
+                Used for template selection and logging.
+            command: The exact command that was executed to generate the output.
+                Included in prompts for context.
+            output_file_path: Path to the file containing tool output.
+                Claude Code reads this file directly.
+            template_type: Specific prompt template to use (e.g., "lint", "security").
+                Auto-detected from tool_name if not provided.
+            dry_run: If True, parse and validate commands but don't create tasks.
+                Useful for testing interpretation without side effects.
 
         Returns:
-            Dict with interpretation result and execution count
+            Dict containing:
+                - success (bool): Whether interpretation succeeded
+                - tasks_created (int): Number of tasks created (0 if dry_run or error)
+                - commands_found (int): Number of valid commands parsed
+                - execution_time (float): Claude's processing time in seconds
+                - dry_run (bool): Echo of the dry_run parameter
+                - error (str): Error message if success=False
         """
         result = await self.interpret_output(
             tool_name, command, output_file_path, template_type
