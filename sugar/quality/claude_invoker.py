@@ -158,6 +158,7 @@ class ToolOutputInterpreter:
         self,
         prompt_template: Optional[str] = None,
         wrapper_config: Optional[Dict[str, Any]] = None,
+        template_config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize the interpreter with optional custom configuration.
@@ -174,6 +175,10 @@ class ToolOutputInterpreter:
                 - use_continuous (bool): Reuse sessions (default: False)
                 - dry_run (bool): Skip actual execution (default: False)
                 Any provided values override the defaults.
+            template_config: Configuration dict for PromptTemplateManager. Supported keys:
+                - templates_dir (str): Custom templates directory
+                - default_template (str): Default template type to use
+                - tool_mappings (dict): Manual tool name to template type mappings
         """
         # Default wrapper config for tool interpretation
         default_config = {
@@ -191,6 +196,7 @@ class ToolOutputInterpreter:
 
         self.wrapper = ClaudeWrapper(default_config)
         self.custom_template = prompt_template
+        self.template_config = template_config or {}
         logger.debug("ToolOutputInterpreter initialized with ClaudeWrapper")
 
     async def interpret_output(
@@ -226,12 +232,13 @@ class ToolOutputInterpreter:
             prompt = prompt.replace("${command}", command)
             prompt = prompt.replace("${output_file_path}", str(output_file_path))
         else:
-            # Use the standard template manager
+            # Use the standard template manager with config
             prompt = create_tool_interpretation_prompt(
                 tool_name=tool_name,
                 command=command,
                 output_file_path=output_file_path,
                 template_type=template_type,
+                config=self.template_config,
             )
 
         # Execute via Claude wrapper

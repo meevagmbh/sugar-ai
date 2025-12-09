@@ -143,7 +143,7 @@ Sugar starts in **dry-run mode** by default:
 
 ## Next Steps
 
-1. **Customize Configuration** → See [Configuration Reference](configuration.md)
+1. **Customize Configuration** → See [Configuration Best Practices](configuration-best-practices.md)
 2. **Explore Commands** → See [CLI Reference](cli-reference.md)  
 3. **Real Examples** → See [Examples](examples.md)
 4. **Need Help?** → See [Troubleshooting](troubleshooting.md)

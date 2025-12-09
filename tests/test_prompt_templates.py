@@ -4,18 +4,19 @@ Tests for Prompt Templates Module
 Tests the prompt template functionality for tool output interpretation.
 """
 
-import pytest
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from sugar.discovery.prompt_templates import (
-    PromptTemplateManager,
-    create_tool_interpretation_prompt,
     DEFAULT_TOOL_INTERPRETATION_TEMPLATE,
+    LINT_ANALYSIS_TEMPLATE,
     SECURITY_ANALYSIS_TEMPLATE,
     TEST_COVERAGE_TEMPLATE,
-    LINT_ANALYSIS_TEMPLATE,
+    PromptTemplateManager,
+    create_tool_interpretation_prompt,
 )
 
 
@@ -301,6 +302,159 @@ class TestToolTypeDetection:
             assert template_type == "default", f"Expected 'default' for {tool}"
 
 
+class TestConfigOptions:
+    """Tests for configuration options: templates_dir, default_template, tool_mappings"""
+
+    def test_templates_dir_config_option(self):
+        """Test that templates_dir config option is used"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a custom template in the custom directory
+            template_path = Path(tmpdir) / "my_template.txt"
+            template_path.write_text("Custom template: ${tool_name}")
+
+            config = {"templates_dir": tmpdir}
+            manager = PromptTemplateManager(config)
+
+            # Should load the custom template from the configured directory
+            assert "my_template" in manager.custom_templates
+            assert (
+                manager.custom_templates["my_template"]
+                == "Custom template: ${tool_name}"
+            )
+
+    def test_default_template_config_option(self):
+        """Test that default_template config option is used as fallback"""
+        config = {"default_template": "security"}
+        manager = PromptTemplateManager(config)
+
+        # Unknown tool should use the configured default_template
+        template_type = manager.get_template_for_tool("unknown-custom-tool")
+        assert template_type == "security"
+
+    def test_tool_mappings_config_option(self):
+        """Test that tool_mappings config option overrides auto-detection"""
+        config = {
+            "tool_mappings": {
+                "eslint": "security",  # Override default lint -> security
+                "custom-tool": "coverage",  # Map custom tool to coverage
+            }
+        }
+        manager = PromptTemplateManager(config)
+
+        # ESLint should use security template instead of lint
+        template_type = manager.get_template_for_tool("eslint")
+        assert template_type == "security"
+
+        # Custom tool should use coverage template
+        template_type = manager.get_template_for_tool("custom-tool")
+        assert template_type == "coverage"
+
+    def test_tool_mappings_priority_over_auto_detection(self):
+        """Test that tool_mappings takes priority over auto-detection"""
+        config = {
+            "tool_mappings": {
+                "bandit": "lint",  # Override auto-detected security
+            }
+        }
+        manager = PromptTemplateManager(config)
+
+        # Bandit is normally auto-detected as security, but should use lint
+        template_type = manager.get_template_for_tool("bandit")
+        assert template_type == "lint"
+
+    def test_combined_config_options(self):
+        """Test using all config options together"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a custom template
+            template_path = Path(tmpdir) / "custom_security.txt"
+            template_path.write_text("Custom Security: ${tool_name}")
+
+            config = {
+                "templates_dir": tmpdir,
+                "default_template": "coverage",
+                "tool_mappings": {
+                    "my-tool": "custom_security",
+                },
+            }
+            manager = PromptTemplateManager(config)
+
+            # Custom template should be loaded
+            assert "custom_security" in manager.custom_templates
+
+            # Tool mapping should be used
+            template_type = manager.get_template_for_tool("my-tool")
+            assert template_type == "custom_security"
+
+            # Default template should be used for unknown tools
+            template_type = manager.get_template_for_tool("unknown-tool")
+            assert template_type == "coverage"
+
+    def test_config_passed_to_create_tool_interpretation_prompt(self):
+        """Test that config is properly passed through create_tool_interpretation_prompt"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a custom template
+            template_path = Path(tmpdir) / "my_custom.txt"
+            template_path.write_text(
+                "My Custom Template: ${tool_name} - ${output_file_path}"
+            )
+
+            output_file = Path("/tmp/test.txt")
+            config = {
+                "templates_dir": tmpdir,
+                "tool_mappings": {
+                    "my-tool": "my_custom",
+                },
+            }
+
+            # Should use the custom template via tool_mappings
+            prompt = create_tool_interpretation_prompt(
+                tool_name="my-tool",
+                command="my-tool --check",
+                output_file_path=output_file,
+                config=config,
+            )
+
+            assert "My Custom Template: my-tool" in prompt
+            assert str(output_file) in prompt
+
+    def test_config_default_template_fallback(self):
+        """Test that default_template from config is used when auto-detection fails"""
+        config = {
+            "default_template": "lint",
+        }
+
+        output_file = Path("/tmp/unknown.txt")
+        prompt = create_tool_interpretation_prompt(
+            tool_name="unknown-tool-xyz",
+            command="unknown-tool-xyz",
+            output_file_path=output_file,
+            config=config,
+        )
+
+        # Should use lint template as specified in config default_template
+        assert "Aggressive Grouping Rules" in prompt
+
+    def test_empty_config_uses_defaults(self):
+        """Test that empty config dict still works with defaults"""
+        config = {}
+        manager = PromptTemplateManager(config)
+
+        # Should still work with default behavior
+        template_type = manager.get_template_for_tool("eslint")
+        assert template_type == "lint"
+
+        template_type = manager.get_template_for_tool("unknown-tool")
+        assert template_type == "default"
+
+    def test_none_config_uses_defaults(self):
+        """Test that None config still works with defaults"""
+        manager = PromptTemplateManager(config=None)
+
+        # Should still work with default behavior
+        template_type = manager.get_template_for_tool("eslint")
+        assert template_type == "lint"
+
+
 class TestCreateToolInterpretationPrompt:
     """Tests for the create_tool_interpretation_prompt convenience function"""
 
@@ -361,6 +515,98 @@ class TestCreateToolInterpretationPrompt:
             )
 
             assert f"Custom: my-tool - {output_file}" in prompt
+
+    def test_tool_prompt_template_override(self):
+        """Test that tool_prompt_template overrides all other templates"""
+        output_file = Path("/tmp/output.txt")
+        inline_template = "Inline: ${tool_name} | ${command} | ${output_file_path}"
+
+        prompt = create_tool_interpretation_prompt(
+            tool_name="bandit",  # Would normally get security template
+            command="bandit -r src/",
+            output_file_path=output_file,
+            template_type="security",  # Should be ignored
+            tool_prompt_template=inline_template,  # Takes precedence
+        )
+
+        # Should use inline template, not security template
+        assert "Inline: bandit | bandit -r src/ |" in prompt
+        assert str(output_file) in prompt
+        assert "CVSS Score" not in prompt  # Security template marker
+
+    def test_tool_template_type_override(self):
+        """Test that tool_template_type overrides template_type parameter"""
+        output_file = Path("/tmp/output.txt")
+
+        prompt = create_tool_interpretation_prompt(
+            tool_name="unknown-tool",
+            command="cmd",
+            output_file_path=output_file,
+            template_type="default",  # Should be overridden
+            tool_template_type="security",  # Takes precedence
+        )
+
+        # Should use security template from tool_template_type
+        assert "CVSS Score" in prompt
+
+    def test_tool_template_type_with_auto_detection(self):
+        """Test tool_template_type overrides auto-detection"""
+        output_file = Path("/tmp/output.txt")
+
+        prompt = create_tool_interpretation_prompt(
+            tool_name="bandit",  # Would auto-detect to security
+            command="bandit -r src/",
+            output_file_path=output_file,
+            tool_template_type="lint",  # Override auto-detection
+        )
+
+        # Should use lint template, not security
+        assert "Lint Priority Mapping" in prompt
+        assert "CVSS Score" not in prompt
+
+    def test_inline_template_variable_substitution(self):
+        """Test variable substitution in inline templates"""
+        output_file = Path("/tmp/test.json")
+        inline_template = """
+Tool Name: ${tool_name}
+Command: ${command}
+Output: ${output_file_path}
+Custom analysis instructions here.
+"""
+
+        prompt = create_tool_interpretation_prompt(
+            tool_name="eslint",
+            command="npx eslint . --format json",
+            output_file_path=output_file,
+            tool_prompt_template=inline_template,
+        )
+
+        assert "Tool Name: eslint" in prompt
+        assert "Command: npx eslint . --format json" in prompt
+        assert f"Output: {output_file}" in prompt
+        assert "Custom analysis instructions here." in prompt
+
+    def test_no_override_uses_defaults(self):
+        """Test that without overrides, normal behavior is preserved"""
+        output_file = Path("/tmp/output.txt")
+
+        # Without any overrides, should auto-detect security template
+        prompt = create_tool_interpretation_prompt(
+            tool_name="bandit",
+            command="bandit -r src/",
+            output_file_path=output_file,
+        )
+
+        assert "CVSS Score" in prompt  # Security template
+
+        # Without any overrides, should use default template
+        prompt2 = create_tool_interpretation_prompt(
+            tool_name="unknown",
+            command="cmd",
+            output_file_path=output_file,
+        )
+
+        assert "sugar add" in prompt2  # Default template marker
 
 
 class TestTemplateContent:

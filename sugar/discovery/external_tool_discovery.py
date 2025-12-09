@@ -169,6 +169,21 @@ class ExternalToolDiscovery:
 
         return work_items
 
+    def _get_tool_config(self, tool_name: str) -> Optional[ExternalToolConfig]:
+        """
+        Get the ExternalToolConfig for a tool by name.
+
+        Args:
+            tool_name: Name of the tool
+
+        Returns:
+            ExternalToolConfig if found, None otherwise
+        """
+        for tool in self.external_tools:
+            if tool.name == tool_name:
+                return tool
+        return None
+
     async def _parse_tool_output(self, result: ToolResult) -> List[Dict[str, Any]]:
         """
         Parse tool output without Claude interpretation.
@@ -279,11 +294,19 @@ class ExternalToolDiscovery:
                 create_tool_interpretation_prompt,
             )
 
-            # Create interpretation prompt
+            # Find the tool config to get template settings
+            tool_config = self._get_tool_config(result.name)
+
+            # Create interpretation prompt with tool-specific settings
             prompt = create_tool_interpretation_prompt(
                 tool_name=result.name,
                 command=result.command,
                 output_file_path=result.output_path,
+                config=self.config,
+                tool_prompt_template=(
+                    tool_config.prompt_template if tool_config else None
+                ),
+                tool_template_type=tool_config.template_type if tool_config else None,
             )
 
             # Execute Claude to interpret the output

@@ -13,11 +13,11 @@ Config structure:
             command: "npx eslint . --format json"
 """
 
+import logging
 import os
 import re
-import logging
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,8 @@ class ExternalToolConfig:
 
     name: str
     command: str
+    prompt_template: Optional[str] = None  # Inline template string
+    template_type: Optional[str] = None  # Reference to named template
 
     def get_expanded_command(self) -> str:
         """Return command with environment variables expanded"""
@@ -122,7 +124,37 @@ def validate_external_tool(
             f"external_tools[{index}]: Field 'command' cannot be empty for tool '{name}'"
         )
 
-    return ExternalToolConfig(name=name.strip(), command=command.strip())
+    # Validate optional 'prompt_template' field
+    prompt_template = tool_config.get("prompt_template")
+    if prompt_template is not None:
+        if not isinstance(prompt_template, str):
+            raise ExternalToolConfigError(
+                f"external_tools[{index}]: Field 'prompt_template' must be a string for tool '{name}', "
+                f"got {type(prompt_template).__name__}"
+            )
+
+    # Validate optional 'template_type' field
+    template_type = tool_config.get("template_type")
+    if template_type is not None:
+        if not isinstance(template_type, str):
+            raise ExternalToolConfigError(
+                f"external_tools[{index}]: Field 'template_type' must be a string for tool '{name}', "
+                f"got {type(template_type).__name__}"
+            )
+
+    # Enforce mutual exclusivity: both prompt_template and template_type cannot be provided
+    if prompt_template is not None and template_type is not None:
+        raise ExternalToolConfigError(
+            f"external_tools[{index}]: Tool '{name}' cannot have both 'prompt_template' and 'template_type'. "
+            f"Please provide only one."
+        )
+
+    return ExternalToolConfig(
+        name=name.strip(),
+        command=command.strip(),
+        prompt_template=prompt_template,
+        template_type=template_type,
+    )
 
 
 def validate_external_tools_config(
@@ -220,6 +252,11 @@ def get_external_tools_config_schema() -> str:
 #     tools:
 #       - name: string      # Tool identifier (required)
 #         command: string   # Shell command to execute (required)
+#         prompt_template: string  # Inline template string (optional)
+#         template_type: string    # Reference to named template (optional)
+#
+# Note: prompt_template and template_type are mutually exclusive.
+#       Only one may be provided per tool.
 #
 # Environment variables in commands are expanded at runtime.
 # Supported syntax: $VAR or ${VAR}
@@ -229,12 +266,22 @@ def get_external_tools_config_schema() -> str:
 #     external_tools:
 #       enabled: true
 #       tools:
+#         # Tool with inline template
 #         - name: eslint
 #           command: "npx eslint . --format json"
-#         - name: ruff
-#           command: "ruff check . --output-format json"
+#           prompt_template: |
+#             Analyze ESLint output for React best practices:
+#             Tool: {tool_name}
+#             Command: {command}
+#             Output: {tool_output}
+#             Focus on hooks and component patterns.
+#         
+#         # Tool referencing a named template
 #         - name: bandit
 #           command: "bandit -r src/ -f json"
-#         - name: sonarqube
-#           command: "sonar-scanner -Dsonar.token=$SONAR_TOKEN"
+#           template_type: "security"
+#         
+#         # Tool using global defaults (no override)
+#         - name: ruff
+#           command: "ruff check . --output-format json"
 """
