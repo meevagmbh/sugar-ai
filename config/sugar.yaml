@@ -141,7 +141,7 @@ sugar:
       ]
 
     # External Tools Discovery
-    # Configure external code quality tools to run and interpret
+    # Configure external code quality tools (eslint, ruff, bandit, etc.) to run and interpret
     external_tools:
       enabled: true
 
@@ -149,38 +149,67 @@ sugar:
       # Environment variables in commands are expanded at runtime ($VAR or ${VAR})
       tools: []
         # Example tools (uncomment to enable):
+        # 
+        # Simple tool definition (uses auto-detection or global mappings):
         # - name: eslint
         #   command: "npx eslint . --format json"
+        #
+        # Tool with explicit template type:
         # - name: ruff
         #   command: "ruff check . --output-format json"
+        #   template_type: "lint"  # Use named template: default, security, lint, coverage
+        #
+        # Tool with inline custom template (full control):
         # - name: bandit
         #   command: "bandit -r src/ -f json"
-        # - name: mypy
-        #   command: "mypy . --output json"
+        #   prompt_template: |
+        #     Analyze security issues from ${tool_name}.
+        #     Focus on: high severity vulnerabilities, exploitability
+        #     Output: ${output_file_path}
+        #
+        # NOTE: Only specify ONE of template_type OR prompt_template per tool
+        # - prompt_template: inline template string (full control, highest priority)
+        # - template_type: reference to named template (default, security, lint, coverage, or custom)
 
+      # ===== TEMPLATE CONFIGURATION =====
+      
       # Directory for custom prompt templates (optional)
-      # Templates can be .txt or .md files with ${tool_name}, ${command}, ${raw_output} placeholders
+      # Create .txt or .md files with template names (e.g., performance.txt, accessibility.md)
+      # Available variables: ${tool_name}, ${command}, ${output_file_path}
       templates_dir: ".sugar/templates"
 
-      # Default template to use when auto-detection fails
-      # Options: default, security, coverage, lint, or custom template name
+      # Default template to use when no other template is specified
+      # Options: 
+      #   Built-in: default, security, lint, coverage
+      #   Custom: any template name from templates_dir (e.g., "performance")
       default_template: "default"
 
-      # Tool-to-template mappings (override auto-detection)
-      # Maps tool names to specific template types
+      # Global tool-to-template mappings (overrides auto-detection)
+      # Maps tool names to template types for consistent interpretation
+      # Priority: tool.prompt_template > tool.template_type > tool_mappings > auto-detect > default_template
       tool_mappings:
-        # Security tools -> security template
+        # Security tools → security template (vulnerability focus)
         bandit: "security"
+        semgrep: "security"
         snyk: "security"
         trivy: "security"
-        # Coverage tools -> coverage template
+        
+        # Coverage tools → coverage template (test gap analysis)
         pytest-cov: "coverage"
         coverage: "coverage"
-        # Linting tools -> lint template
+        nyc: "coverage"
+        
+        # Linting tools → lint template (code quality focus)
         eslint: "lint"
         pylint: "lint"
         ruff: "lint"
         mypy: "lint"
+        flake8: "lint"
+        
+        # Example custom template mapping:
+        # lighthouse: "performance"  # References .sugar/templates/performance.txt
+
+      # ===== TASK GENERATION SETTINGS =====
 
       # Maximum tasks to generate from a single tool run
       max_tasks_per_tool: 50

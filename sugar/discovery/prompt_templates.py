@@ -6,11 +6,11 @@ This module provides configurable prompt templates that instruct Claude Code
 to interpret raw output from code quality tools and generate sugar add commands.
 """
 
-import os
 import logging
+import os
 from pathlib import Path
-from typing import Optional, Dict, Any
 from string import Template
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -446,6 +446,11 @@ class PromptTemplateManager:
         """
         tool_lower = tool_name.lower()
 
+        # Check config for manual tool mappings first (highest priority)
+        tool_mappings = self.config.get("tool_mappings", {})
+        if tool_mappings and tool_lower in tool_mappings:
+            return tool_mappings[tool_lower]
+
         # Security tools
         security_tools = [
             "bandit",
@@ -503,15 +508,19 @@ class PromptTemplateManager:
         if tool_lower in self.custom_templates:
             return tool_lower
 
-        return "default"
+        # Use default_template from config if specified
+        default_template = self.config.get("default_template", "default")
+        return default_template
 
 
 def create_tool_interpretation_prompt(
     tool_name: str,
     command: str,
-    output_file_path: Path,
+    output_file_path: Optional[Path],
     template_type: Optional[str] = None,
     config: Optional[Dict[str, Any]] = None,
+    tool_prompt_template: Optional[str] = None,
+    tool_template_type: Optional[str] = None,
 ) -> str:
     """
     Create a prompt for Claude Code to interpret tool output.
@@ -524,18 +533,37 @@ def create_tool_interpretation_prompt(
         output_file_path: Path to the file containing the tool output
         template_type: Optional specific template type (auto-detected if not provided)
         config: Optional configuration for template manager
+        tool_prompt_template: Optional inline template string from tool config (overrides all)
+        tool_template_type: Optional template type from tool config (overrides template_type)
 
     Returns:
         Complete prompt string for Claude Code
     """
+    # If tool has inline template, use it directly with variable substitution
+    if tool_prompt_template is not None:
+        template = Template(tool_prompt_template)
+        output_path_str = str(output_file_path) if output_file_path else ""
+        try:
+            return template.safe_substitute(
+                tool_name=tool_name,
+                command=command,
+                output_file_path=output_path_str,
+            )
+        except Exception as e:
+            logger.error(f"Error rendering tool inline template: {e}")
+            # Fall through to default handling
+
     manager = PromptTemplateManager(config)
 
+    # Use tool_template_type if provided, otherwise use the passed template_type
+    effective_template_type = tool_template_type or template_type
+
     # Auto-detect template type if not specified
-    if template_type is None:
-        template_type = manager.get_template_for_tool(tool_name)
+    if effective_template_type is None:
+        effective_template_type = manager.get_template_for_tool(tool_name)
 
     return manager.get_template(
-        template_type=template_type,
+        template_type=effective_template_type,
         tool_name=tool_name,
         command=command,
         output_file_path=output_file_path,

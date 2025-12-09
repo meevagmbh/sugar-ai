@@ -6,14 +6,15 @@ to Claude Code for interpretation, and creates Sugar tasks from the results.
 """
 
 import asyncio
-import click
 import json
 import logging
 import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
+import click
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,7 @@ async def _execute_tool_discovery(
     dry_run: bool,
     work_queue,
     claude_wrapper,
+    external_tools_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Execute a single tool and process its output.
@@ -156,6 +158,9 @@ async def _execute_tool_discovery(
         tool_name=result.name,
         command=result.command,
         output_file_path=result.output_path,
+        config=external_tools_config,
+        tool_prompt_template=tool_config.prompt_template,
+        tool_template_type=tool_config.template_type,
     )
 
     # Pass to Claude Code for interpretation
@@ -279,13 +284,14 @@ def discover(ctx, tool_name: Optional[str], dry_run: bool, timeout: int):
         sugar discover --timeout 600
     """
     import yaml
-    from sugar.storage.work_queue import WorkQueue
-    from sugar.executor.claude_wrapper import ClaudeWrapper
+
     from sugar.discovery.external_tool_config import (
-        parse_external_tools_from_discovery_config,
         ExternalToolConfigError,
+        parse_external_tools_from_discovery_config,
     )
     from sugar.discovery.orchestrator import ToolOrchestrator
+    from sugar.executor.claude_wrapper import ClaudeWrapper
+    from sugar.storage.work_queue import WorkQueue
 
     config_file = ctx.obj.get("config", ".sugar/config.yaml")
 
@@ -398,6 +404,7 @@ def discover(ctx, tool_name: Optional[str], dry_run: bool, timeout: int):
                 dry_run=dry_run,
                 work_queue=work_queue,
                 claude_wrapper=claude_wrapper,
+                external_tools_config=external_tools_config,
             )
 
             tool_summaries.append(summary)

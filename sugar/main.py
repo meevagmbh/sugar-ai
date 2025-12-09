@@ -1943,6 +1943,42 @@ sugar:
         ".sugar", ".claude"
       ]
       
+    # External Tools Integration
+    # Run external code quality tools (linters, security scanners, etc.)
+    # and let Claude interpret their output to create work items
+    external_tools:
+      enabled: false  # Enable to run external tools during discovery
+      
+      # Template configuration
+      templates_dir: ".sugar/templates"  # Custom templates directory
+      default_template: "default"        # Fallback template: default, security, lint, coverage
+      
+      # Map tool names to template types (overrides auto-detection)
+      # tool_mappings:
+      #   bandit: "security"
+      #   eslint: "lint"
+      #   my_scanner: "security"
+      
+      # Define external tools to run
+      # tools:
+      #   # Basic tool definition
+      #   - name: eslint
+      #     command: "npx eslint . --format json"
+      #   
+      #   # Tool with custom template type
+      #   - name: bandit
+      #     command: "bandit -r src/ -f json"
+      #     template_type: "security"
+      #   
+      #   # Tool with inline prompt template
+      #   - name: custom_linter
+      #     command: "./run-linter.sh"
+      #     prompt_template: |
+      #       Analyze this custom linter output:
+      #       Tool: ${{tool_name}}
+      #       Output: ${{output_file_path}}
+      #       Focus on critical issues only.
+      
   # Storage
   storage:
     database: ".sugar/sugar.db"  # Project-specific database

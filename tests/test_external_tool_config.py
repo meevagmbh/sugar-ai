@@ -9,19 +9,20 @@ Tests the external_tools configuration under discovery section including:
 """
 
 import os
-import pytest
 from unittest.mock import patch
 
+import pytest
+
+from sugar.discovery.code_quality import CodeQualityScanner
 from sugar.discovery.external_tool_config import (
     ExternalToolConfig,
     ExternalToolConfigError,
-    validate_external_tool,
-    validate_external_tools_config,
-    parse_external_tools_from_discovery_config,
     expand_env_vars,
     get_external_tools_config_schema,
+    parse_external_tools_from_discovery_config,
+    validate_external_tool,
+    validate_external_tools_config,
 )
-from sugar.discovery.code_quality import CodeQualityScanner
 
 
 class TestExternalToolConfig:
@@ -175,6 +176,80 @@ class TestValidateExternalTool:
         config = {"name": "eslint", "command": "  npx eslint .  "}
         tool = validate_external_tool(config, 0)
         assert tool.command == "npx eslint ."
+
+    def test_with_prompt_template(self):
+        """Test validation with prompt_template field"""
+        config = {
+            "name": "eslint",
+            "command": "npx eslint .",
+            "prompt_template": "Custom template: {tool_name}",
+        }
+        tool = validate_external_tool(config, 0)
+        assert tool.name == "eslint"
+        assert tool.command == "npx eslint ."
+        assert tool.prompt_template == "Custom template: {tool_name}"
+        assert tool.template_type is None
+
+    def test_with_template_type(self):
+        """Test validation with template_type field"""
+        config = {
+            "name": "bandit",
+            "command": "bandit -r src/",
+            "template_type": "security",
+        }
+        tool = validate_external_tool(config, 0)
+        assert tool.name == "bandit"
+        assert tool.command == "bandit -r src/"
+        assert tool.template_type == "security"
+        assert tool.prompt_template is None
+
+    def test_both_template_fields_raises_error(self):
+        """Test that providing both prompt_template and template_type raises error"""
+        config = {
+            "name": "eslint",
+            "command": "npx eslint .",
+            "prompt_template": "Custom template",
+            "template_type": "lint",
+        }
+        with pytest.raises(ExternalToolConfigError) as exc_info:
+            validate_external_tool(config, 0)
+        assert "cannot have both 'prompt_template' and 'template_type'" in str(
+            exc_info.value
+        )
+        assert "eslint" in str(exc_info.value)
+
+    def test_prompt_template_not_string(self):
+        """Test error for non-string prompt_template"""
+        config = {
+            "name": "eslint",
+            "command": "npx eslint .",
+            "prompt_template": 123,
+        }
+        with pytest.raises(ExternalToolConfigError) as exc_info:
+            validate_external_tool(config, 0)
+        assert "prompt_template" in str(exc_info.value)
+        assert "must be a string" in str(exc_info.value)
+
+    def test_template_type_not_string(self):
+        """Test error for non-string template_type"""
+        config = {
+            "name": "eslint",
+            "command": "npx eslint .",
+            "template_type": ["security"],
+        }
+        with pytest.raises(ExternalToolConfigError) as exc_info:
+            validate_external_tool(config, 0)
+        assert "template_type" in str(exc_info.value)
+        assert "must be a string" in str(exc_info.value)
+
+    def test_neither_template_field_is_valid(self):
+        """Test that neither template field is required (backward compatible)"""
+        config = {"name": "ruff", "command": "ruff check ."}
+        tool = validate_external_tool(config, 0)
+        assert tool.name == "ruff"
+        assert tool.command == "ruff check ."
+        assert tool.prompt_template is None
+        assert tool.template_type is None
 
 
 class TestValidateExternalToolsConfig:
