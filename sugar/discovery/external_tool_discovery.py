@@ -211,6 +211,8 @@ class ExternalToolDiscovery:
         if len(result.stdout) > 500:
             stdout_preview += "..."
 
+        # Use output hash in source_file to ensure uniqueness across different tool runs
+        # This prevents different tool outputs from being incorrectly deduplicated
         work_item = {
             "id": str(uuid.uuid4()),
             "type": "refactor",
@@ -219,7 +221,7 @@ class ExternalToolDiscovery:
             "priority": 3,  # Medium priority for linting/quality issues
             "status": "pending",
             "source": self.SOURCE_EXTERNAL_TOOLS,
-            "source_file": f"external_tool:{result.name}",
+            "source_file": f"external_tool:{result.name}:{abs(output_hash)}",
             "context": {
                 "tool_name": result.name,
                 "tool_command": result.command,
@@ -370,9 +372,12 @@ class ExternalToolDiscovery:
 
         matches = re.findall(pattern, claude_output, re.IGNORECASE)
 
-        for match in matches:
+        for idx, match in enumerate(matches):
             title, task_type, priority, description = match
 
+            # Create unique source_file identifier for each work item
+            # Use tool name, title hash, and sequence number for uniqueness
+            title_hash = abs(hash(title))
             work_item = {
                 "id": str(uuid.uuid4()),
                 "type": task_type or "refactor",
@@ -381,6 +386,7 @@ class ExternalToolDiscovery:
                 "priority": int(priority) if priority else 3,
                 "status": "pending",
                 "source": f"discover:{tool_name}",
+                "source_file": f"external_tool:{tool_name}:claude:{title_hash}:{idx}",
                 "context": {
                     "discovered_by": tool_name,
                     "added_via": "sugar_loop_claude",

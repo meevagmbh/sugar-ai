@@ -1,3 +1,7 @@
+## Issue Tracking
+
+**This project uses bd (beads) for issue tracking.** See AGENTS.md for complete workflow instructions. Use `bd ready --json` to find work, `bd create` for new issues, and always commit `.beads/issues.jsonl` with code changes.
+
 ## Development Environment
 
 This project supports both **uv** (recommended) and **venv** workflows:
