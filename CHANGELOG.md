@@ -5,6 +5,51 @@ All notable changes to the Sugar autonomous development system will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2025-12-11
+
+### 🚀 MINOR RELEASE: Goose Extension & MCP Server
+
+Adds official Goose integration via MCP server, enabling Sugar to work with Block's open-source AI agent.
+
+### Added
+
+- **Goose extension support** - Full MCP server implementation for Goose and Claude Desktop (#3)
+- **`sugarai-mcp` npm package** - Published to npm, installable via `npx -y sugarai-mcp`
+- **`packages/mcp-server/`** - TypeScript MCP server using `@modelcontextprotocol/sdk`
+- **MCP tools exposed**: createTask, listTasks, viewTask, updateTask, removeTask, getStatus, runOnce, initSugar
+- **Goose configuration examples** - Added to README.md and package README
+
+### Documentation
+
+- Updated `docs/dev/release-process.md` with npm publishing steps for MCP server
+- Added Goose and Claude Desktop configuration examples to README.md
+
+---
+
+## [2.1.1] - 2025-12-11
+
+### 🔧 PATCH RELEASE: Plugin Bug Fixes
+
+Fixes two bugs reported by users affecting Claude Code plugin installation and loading.
+
+### Fixed
+
+- **hooks.json format** - Convert hooks configuration from array to object format as required by Claude Code specification. Fixes plugin loading error: "Expected object, received array" (#12)
+- **Plugin marketplace discovery** - Add proper `marketplace.json` with Claude Code schema and correct installation instructions. Users can now install with `/plugin install cdnsteve/sugar` (#8)
+
+### Added
+
+- `.claude-plugin/marketplace.json` - Proper marketplace manifest following Claude Code schema
+- `docs/dev/release-process.md` - Release process documentation for maintainers
+- Quick release reference in `CLAUDE.md`
+
+### Changed
+
+- Updated installation instructions in README.md and plugin README to use correct syntax
+- Updated plugin structure tests to validate Claude Code hook format
+
+---
+
 ## [2.0.3] - 2025-10-15
 
 ### 🔧 PATCH RELEASE: Messaging Refresh

@@ -74,6 +74,8 @@ class TestPluginStructure:
     def test_plugin_manifest_version_format(self, plugin_manifest):
         """Verify plugin version follows semver format"""
         version = plugin_manifest.get("version", "")
+        # Version should be a valid semver string, not hardcoded
+        assert version, "version should not be empty"
         parts = version.split(".")
         assert len(parts) >= 2, f"Version '{version}' should follow semver format"
         assert all(
@@ -124,9 +126,10 @@ class TestPluginStructure:
         assert hooks_path.exists(), f"Hooks configuration not found: {hooks_path}"
 
         assert "hooks" in hooks_config, "hooks.json missing 'hooks' key"
+        # Claude Code expects hooks to be an object keyed by event name
         assert isinstance(
-            hooks_config["hooks"], list
-        ), "hooks.json 'hooks' should be a list"
+            hooks_config["hooks"], dict
+        ), "hooks must be an object, not array"
         assert (
             len(hooks_config["hooks"]) > 0
         ), "hooks.json should contain at least one hook"
@@ -234,47 +237,53 @@ class TestAgentStructure:
 
 
 class TestHooksConfiguration:
-    """Test hooks configuration"""
+    """Test hooks configuration for Claude Code format"""
 
     def test_hooks_have_required_fields(self, hooks_config):
-        """Verify each hook has required fields"""
-        required_fields = ["name", "event", "action"]
+        """Verify hooks object has valid event keys with hook arrays"""
+        # Claude Code format: {"hooks": {"EventName": [{"matcher": "...", "hooks": [...]}]}}
+        hooks = hooks_config["hooks"]
+        assert isinstance(hooks, dict), "hooks must be an object keyed by event name"
 
-        for hook in hooks_config["hooks"]:
-            hook_name = hook.get("name", "<unnamed>")
-            for field in required_fields:
+        for event_name, event_hooks in hooks.items():
+            assert isinstance(
+                event_hooks, list
+            ), f"Event {event_name} hooks must be an array"
+            for hook_entry in event_hooks:
                 assert (
-                    field in hook
-                ), f"Hook '{hook_name}' missing required field: {field}"
+                    "hooks" in hook_entry
+                ), f"Hook entry in {event_name} missing 'hooks' array"
+                assert isinstance(
+                    hook_entry["hooks"], list
+                ), f"Hook entry 'hooks' must be an array"
 
     def test_hook_events_are_valid(self, hooks_config):
         """Verify hook events are valid Claude Code events"""
-        valid_events = frozenset(
-            [
-                "tool-use",
-                "session-start",
-                "session-end",
-                "user-prompt-submit",
-                "file-change",
-            ]
-        )
+        valid_events = [
+            "PreToolUse",
+            "PostToolUse",
+            "Notification",
+            "Stop",
+            "SubagentStop",
+            "UserPromptSubmit",
+        ]
 
-        for hook in hooks_config["hooks"]:
-            hook_name = hook.get("name", "<unnamed>")
-            event = hook.get("event")
+        for event_name in hooks_config["hooks"].keys():
             assert (
-                event in valid_events
-            ), f"Hook '{hook_name}' has invalid event: {event}. Valid events: {sorted(valid_events)}"
+                event_name in valid_events
+            ), f"Invalid event name: {event_name}. Valid events: {valid_events}"
 
-    def test_hooks_have_descriptions(self, hooks_config):
-        """Verify hooks have meaningful descriptions"""
-        min_description_length = 10
-
-        for hook in hooks_config["hooks"]:
-            hook_name = hook.get("name", "<unnamed>")
-            assert "description" in hook, f"Hook '{hook_name}' missing description"
-            description = hook.get("description", "")
-            assert len(description) >= min_description_length, (
-                f"Hook '{hook_name}' has too short description "
-                f"(min {min_description_length} chars): '{description}'"
-            )
+    def test_hooks_have_command_or_prompt(self, hooks_config):
+        """Verify each hook has a type and command/prompt"""
+        for event_name, event_hooks in hooks_config["hooks"].items():
+            for hook_entry in event_hooks:
+                for hook in hook_entry["hooks"]:
+                    assert "type" in hook, f"Hook in {event_name} missing 'type'"
+                    assert hook["type"] in [
+                        "command",
+                        "prompt",
+                    ], f"Invalid hook type in {event_name}"
+                    if hook["type"] == "command":
+                        assert (
+                            "command" in hook
+                        ), f"Command hook in {event_name} missing 'command'"
